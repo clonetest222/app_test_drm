@@ -8,7 +8,7 @@ Gồm 2 phần:
 | Thư mục | Là gì | Chạy ở đâu |
 |---|---|---|
 | gốc repo | app Electron (giao diện + quét + fix) | máy người dùng |
-| [`backend/`](backend/) | API Deno giữ credential | [Deno Deploy](https://dash.deno.com) |
+| [`backend/`](backend/) | API Deno giữ credential + Deno KV giữ state | [Deno Deploy](https://dash.deno.com) |
 
 ---
 
@@ -35,15 +35,14 @@ tài khoản, không dấu vết.
 Từ 1.1.0:
 
 * app **không còn key Supabase nào**
-* `anon` bị khoá khỏi `denuvo_accounts` — key rút từ app đọc được **0 dòng**
 * mỗi lần fix chỉ xin được **1 tài khoản cho đúng 1 appid**, request ký HMAC theo máy
 * response nhạy cảm nằm trong **phong bì mã hoá riêng cho từng request** ⇒ bắt gói tin hay
   dựng proxy TLS cũng không đọc được mật khẩu
 * endpoint quản trị **không bao giờ trả mật khẩu** (có test tự động canh)
 * có rate limit, audit log, và khoá được từng máy
 
-**Cột `password` vẫn là plaintext như trước** — bạn vẫn nhập tay trên Supabase Table Editor,
-không phải migrate gì. Vấn đề cũ không nằm ở chỗ lưu plaintext, mà ở chỗ **ai đọc được nó**.
+**Cột `password` vẫn plaintext như trước**, và **không có bảng SQL nào được tạo thêm** — thiết bị,
+nonce, cooldown, audit đều nằm trong Deno KV. Supabase chỉ còn được ĐỌC.
 
 Chi tiết + phần **không** chặn được: [specs/security.md](specs/security.md).
 
@@ -52,36 +51,36 @@ Chi tiết + phần **không** chặn được: [specs/security.md](specs/securi
 
 ---
 
-## Thiết lập lần đầu
+## Thiết lập
 
-Chia làm 2 giai đoạn để có thể lên sóng ngay mà chưa cần đụng tới key nhạy cảm.
+Backend cần **đúng 2 biến môi trường** — chính 2 biến bạn đã có sẵn trên Deno Deploy.
+Không chạy SQL, không tạo bảng, không sinh khoá.
 
-### Giai đoạn 1 — chạy được (dùng lại env đang có)
+1. Deno Deploy → **New Project** → Deploy from GitHub → repo này
+2. **App directory** `./backend` · **Entrypoint** `main.ts` · **Install command** để trống
+3. Environment Variables — giữ nguyên `SUPABASE_URL` + `SUPABASE_PUBLISHABLE_KEY`
+4. Deploy. Lần chạy đầu backend tự sinh khoá mã hoá + admin token, lưu vào Deno KV.
+   **Xem log lúc khởi động để chép `ADMIN_TOKEN`** — nó chỉ in ra một lần.
+5. Lấy URL `.deno.dev` → điền `G4_API_BASE` trong [`.env`](.env) của app
+6. Kiểm tra: `deno task e2e https://<project>.deno.dev`
 
-1. Supabase SQL Editor → chạy [`sql/01_bang_moi.sql`](sql/01_bang_moi.sql)
-   *(chỉ THÊM bảng/cột, không xoá policy nào — app 1.0.0 vẫn chạy bình thường)*
-2. Deno Deploy → **App directory** `./backend`, **Entrypoint** `main.ts`, **Install command** để trống
-3. Environment Variables — giữ nguyên `SUPABASE_URL` + `SUPABASE_PUBLISHABLE_KEY` đang có,
-   thêm 3 biến: `CRED_ENC_KEY`, `ENROLL_TOKEN`, `ADMIN_TOKEN` (`deno task keygen` sinh cho)
-4. Điền [`.env`](.env) của app: `G4_API_BASE` + `G4_ENROLL_TOKEN` (trùng `ENROLL_TOKEN`)
-5. Fix thử 1 game cho chạy hết luồng
+Tài khoản Steam vẫn thêm/sửa thẳng trong Supabase Table Editor như trước — cột `password`
+plaintext, không đổi gì.
 
-Xong bước này backend chạy, có rate limit / audit / phong bì mã hoá. **Nhưng lỗ hổng cũ vẫn mở** —
-`curl https://<project>.deno.dev/health` sẽ báo `"bao_mat": "CHUA VA XONG"`.
+### Vá lỗ hổng (tuỳ chọn, làm sau)
 
-### Giai đoạn 2 — vá lỗ hổng
+Bước trên cho bạn backend chạy được, có rate limit / audit / phong bì mã hoá. **Nhưng lỗ hổng
+cũ vẫn mở**: publishable key nằm trong app 1.0.0 đã phát hành, `anon` vẫn đọc được cả bảng
+mật khẩu. `/health` sẽ báo `"bao_mat": "CHUA VA XONG"`.
 
-6. Supabase → **Project Settings → API Keys** → copy secret key (`sb_secret_...`)
-   hoặc legacy `service_role`
-7. Deno Deploy → thêm biến `SUPABASE_SERVICE_ROLE_KEY` = key đó → redeploy
-8. `curl .../health` phải báo `"bao_mat": "da khoa anon"` **trước khi** làm bước 9
-9. Supabase SQL Editor → chạy [`sql/02_khoa_anon.sql`](sql/02_khoa_anon.sql)
-10. Chạy [`sql/03_kiem_tra.sql`](sql/03_kiem_tra.sql) — truy vấn số 1 phải trả về **0 dòng**
+Đóng lại — **đúng thứ tự này**:
 
-> ⚠️ Chạy bước 9 khi backend vẫn đang dùng publishable key thì backend chết ngay: nó bị khoá
-> cùng với `anon`. Bước 8 là để tránh đúng chuyện đó.
+1. Supabase → Project Settings → API Keys → copy secret key (`sb_secret_...`)
+2. Deno Deploy → thêm `SUPABASE_SERVICE_ROLE_KEY` = key đó → redeploy
+3. `curl .../health` phải báo `"bao_mat": "da khoa anon"`
+4. Chỉ khi đó mới chạy [`sql/khoa_anon.sql`](sql/khoa_anon.sql)
 
-Không có bước migrate: tài khoản giữ nguyên plaintext như đang có.
+Làm ngược lại thì backend bị khoá cùng `anon`. Bước 3 là để chặn đúng chuyện đó.
 
 ## Hành vi đáng chú ý
 
@@ -91,6 +90,7 @@ Không có bước migrate: tài khoản giữ nguyên plaintext như đang có.
    `config\stplug-in`.
 2. **Bảng cập nhật riêng**: `denuvo_releases` / `denuvo_renderer` — app đọc qua backend
    (`/v1/update/release`, `/v1/update/renderer`), không đọc thẳng Supabase nữa.
+   Backend **không ghi gì** vào Supabase — chỉ SELECT.
 3. **Tab Denuvo là tab mặc định** — mở app là quét luôn + chuẩn bị công cụ fix.
 4. **Nâng cấp tại chỗ**: `appId` giữ nguyên `com.g4market.denuvo` nên installer mới đè lên bản
    `G4 Denuvo Tool` đã cài, không tạo 2 app song song. `installer.nsh` đóng cả tên cũ lẫn tên mới.
@@ -105,7 +105,7 @@ Ticket ghi vào `g4_tool.lua` chỉ có tác dụng khi máy **đã có sẵn fi
 Cùng project Supabase, cùng 2 bảng `denuvo_requirement` + `denuvo_accounts`.
 `temp\extracted\extract_tickets.exe` đã chép sẵn nên lần chạy đầu không phải tải lại.
 
-> ⚠️ `sql/02_khoa_anon.sql` **khoá `anon` khỏi 2 bảng dùng chung này**. Nếu `g4_tool` vẫn
+> ⚠️ `sql/khoa_anon.sql` **khoá `anon` khỏi 2 bảng dùng chung này**. Nếu `g4_tool` vẫn
 > đọc chúng bằng publishable key thì nó sẽ hỏng — phải cho `g4_tool` đi qua backend này luôn,
 > hoặc tách bảng riêng cho từng app.
 

@@ -14,8 +14,5 @@ export function maskAccount(a: AccountRow): Record<string, unknown> {
     // Chi bao CO hay KHONG, khong bao gio bao la gi.
     co_mat_khau: !!((a.password && a.password.length > 0) || a.password_enc),
     da_ma_hoa: !!a.password_enc,
-    fail_count: a.fail_count ?? 0,
-    cooldown_until: a.cooldown_until ?? null,
-    last_used_at: a.last_used_at ?? null,
   };
 }

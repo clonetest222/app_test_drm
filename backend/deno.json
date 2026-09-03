@@ -1,14 +1,13 @@
 {
   "tasks": {
-    "dev": "deno run --allow-net --allow-env --watch main.ts",
-    "start": "deno run --allow-net --allow-env main.ts",
-    "keygen": "deno run scripts/keygen.ts",
-    "migrate": "deno run --allow-net --allow-env scripts/migrate_encrypt.ts",
-    "import": "deno run --allow-net --allow-env --allow-read scripts/import_accounts.ts",
-    "check": "deno check main.ts scripts/*.ts",
-    "test": "deno test src/",
+    "dev": "deno run --unstable-kv --allow-net --allow-env --allow-read --allow-write --watch main.ts",
+    "start": "deno run --unstable-kv --allow-net --allow-env --allow-read --allow-write main.ts",
+    "check": "deno check --unstable-kv main.ts scripts/*.ts",
+    "test": "deno test --unstable-kv src/",
     "interop": "deno run --allow-run --allow-write --allow-read --allow-env scripts/interop_check.ts",
-    "deploy": "deployctl deploy --project=g4play-denuvo --entrypoint=main.ts --prod"
+    "keygen": "deno run scripts/keygen.ts",
+    "deploy": "deployctl deploy --project=g4play-denuvo --entrypoint=main.ts --prod",
+    "e2e": "deno run --allow-net scripts/e2e.ts"
   },
   "fmt": {
     "lineWidth": 110,

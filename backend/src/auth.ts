@@ -9,15 +9,17 @@
 //
 // Chong:
 //   * gia mao       — khong co device_secret thi khong ky duoc
-//   * replay        — nonce ghi vao denuvo_nonce (unique), ts lech > 2 phut la loai
+//   * replay        — nonce ghi vao KV kem TTL 5 phut, trung la loai
 //   * doi body/path — ca hai nam trong chuoi ky
-import { cfg } from "./config.ts";
-import { db, type DeviceRow } from "./supabase.ts";
+//
+// Thiet bi + nonce nam trong Deno KV, khong dung bang Supabase nao.
+import { cfg, secrets } from "./config.ts";
+import { claimNonce, getDevice, type Device } from "./kv.ts";
 import { hmacHex, open, sha256Hex, timingSafeEqual } from "./crypto.ts";
 import { HttpError } from "./http.ts";
 
 export interface AuthedDevice {
-  device: DeviceRow;
+  device: Device;
   secret: string;   // da giai ma, CHI ton tai trong bo nho request nay
   nonce: string;
 }
@@ -34,7 +36,6 @@ export async function requireDevice(req: Request, bodyText: string): Promise<Aut
   if (!/^[0-9a-f]{32,64}$/i.test(nonce) || !/^[0-9a-f]{64}$/i.test(sig)) {
     throw new HttpError(401, "bad_sig_format", "Chu ky sai dinh dang");
   }
-  // Chan som device id rac: de lot xuong PostgREST se thanh loi 400 -> 500 khong can thiet.
   if (!/^[0-9a-f-]{36}$/i.test(deviceId)) {
     throw new HttpError(401, "unknown_device", "Thiet bi chua dang ky");
   }
@@ -44,13 +45,13 @@ export async function requireDevice(req: Request, bodyText: string): Promise<Aut
     throw new HttpError(401, "clock_skew", "Dong ho may lech qua nhieu, kiem tra gio he thong");
   }
 
-  const device = await db.selectOne<DeviceRow>("denuvo_devices", `select=*&id=eq.${encodeURIComponent(deviceId)}`);
+  const device = await getDevice(deviceId);
   if (!device) throw new HttpError(401, "unknown_device", "Thiet bi chua dang ky");
   if (device.revoked) {
-    throw new HttpError(403, "device_revoked", device.revoke_reason || "Thiet bi da bi khoa");
+    throw new HttpError(403, "device_revoked", device.revokeReason || "Thiet bi da bi khoa");
   }
 
-  const secret = await open(cfg.encKey, { ct: device.secret_enc, iv: device.secret_iv }, `device:${device.id}`);
+  const secret = await open(secrets.encKey, { ct: device.secret, iv: device.secretIv }, `device:${device.id}`);
 
   const url = new URL(req.url);
   const canonical = [req.method, url.pathname, ts, nonce, await sha256Hex(bodyText)].join("\n");
@@ -59,16 +60,17 @@ export async function requireDevice(req: Request, bodyText: string): Promise<Aut
     throw new HttpError(401, "bad_sig", "Chu ky khong hop le");
   }
 
-  // Nonce chi duoc dung 1 lan (khoa chinh) -> chan replay.
-  const fresh = await db.insertIfNew("denuvo_nonce", { nonce, device_id: device.id });
-  if (!fresh) throw new HttpError(401, "replay", "Request da duoc dung roi");
+  // Nonce chi duoc dung 1 lan -> chan replay. KV tu xoa sau 5 phut.
+  if (!(await claimNonce(nonce, device.id))) {
+    throw new HttpError(401, "replay", "Request da duoc dung roi");
+  }
 
   return { device, secret, nonce };
 }
 
 export function requireAdmin(req: Request): void {
   const t = req.headers.get("x-g4-admin") ?? "";
-  if (!t || !timingSafeEqual(t, cfg.adminToken)) {
+  if (!t || !timingSafeEqual(t, secrets.adminToken)) {
     throw new HttpError(401, "admin_denied", "Sai admin token");
   }
 }

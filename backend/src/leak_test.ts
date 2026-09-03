@@ -14,9 +14,6 @@ const acc: AccountRow = {
   username: "steamuser",
   password: MAT_KHAU, // <- plaintext, dung nhu cach ban luu trong Supabase
   status: "available",
-  fail_count: 0,
-  cooldown_until: null,
-  last_used_at: null,
 };
 
 Deno.test("maskAccount KHONG lo mat khau ra endpoint quan tri", () => {

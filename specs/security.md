@@ -37,9 +37,9 @@ Không cần kỹ năng gì, không để lại dấu vết, không cách nào b
   └─────────────────────────┘                                    └──────────┬───────────┘
                                                                             │ service_role
                                                                  ┌──────────▼───────────┐
-                                                                 │  Supabase            │
+                                                                 │  Supabase (CHI DOC)  │
                                                                  │  password: plaintext │
-                                                                 │  anon: 0 quyền đọc   │
+                                                                 │  + Deno KV (state)   │
                                                                  └──────────────────────┘
 ```
 
@@ -48,7 +48,8 @@ Không cần kỹ năng gì, không để lại dấu vết, không cách nào b
 | Lớp | Chặn cái gì |
 |---|---|
 | RLS đóng hoàn toàn | anon/publishable key không đọc nổi 1 dòng nào của `denuvo_accounts` |
-| Chỉ backend đọc DB | app không có key nào; `service_role` chỉ nằm trong env của Deno Deploy |
+| Chỉ backend đọc DB | app không có key nào |
+| Backend không GHI vào Supabase | state nằm trong Deno KV — không cần quyền ghi, không tạo bảng nào |
 | `maskAccount()` | endpoint quản trị chỉ trả `co_mat_khau: true/false`, không bao giờ trả mật khẩu |
 | Ký HMAC theo device | không có `device_secret` thì không gọi được endpoint nào |
 | Nonce dùng 1 lần | bắt được request cũ cũng không phát lại được |
@@ -76,8 +77,7 @@ nhận ra cùng fingerprint máy nên cấp lại secret mới thay vì tạo de
    không sợ mất khoá là mất hết).
    *Giảm nhẹ:* `service_role` key chỉ nằm trong env của Deno Deploy, không đâu khác; bật 2FA
    cho tài khoản Supabase; đừng share backup.
-   *Muốn bỏ hẳn rủi ro này:* đặt `ENCRYPT_AT_REST=true` rồi `deno task migrate`. Tuỳ chọn,
-   mặc định tắt.
+   *Giảm nhẹ:* key Supabase chỉ nằm trong env của Deno Deploy; bật 2FA cho tài khoản Supabase.
 2. **Người dùng hợp lệ vẫn thấy mật khẩu game họ đang fix.** `steam.exe -login <user> <pass>`
    chạy trên máy họ — không tránh được, chừng nào việc login còn diễn ra tại máy khách.
 3. **Mật khẩu nằm trên command line của `steam.exe`.** Process Explorer / Task Manager (cột
@@ -98,17 +98,26 @@ Bật lên chỉ cần sửa backend, **không phải phát hành app mới**.
 
 ## 4. Việc phải làm khi phát hành
 
-- [ ] Chạy `sql/01_bang_moi.sql` (bắt buộc — tạo bảng backend cần, không đụng policy)
-- [ ] `deno task keygen` → điền biến môi trường trên dash.deno.com (entrypoint `backend/main.ts`)
-- [ ] Đặt `SUPABASE_SERVICE_ROLE_KEY`, kiểm tra `/health` báo `"da khoa anon"`
-- [ ] Chạy `sql/02_khoa_anon.sql` — **đây mới là bước vá lỗ hổng**, làm sau bước trên
-- [ ] Chạy `sql/03_kiem_tra.sql` — **truy vấn số 1 phải trả về 0 dòng** (không còn policy
-      `anon` nào trên `denuvo_accounts` / `denuvo_requirement`). Đây là bước xác nhận lỗ hổng
-      đã đóng; các truy vấn còn lại chỉ để đối chiếu.
-- [ ] Điền `G4_API_BASE` + `G4_ENROLL_TOKEN` vào `.env` của app
-- [ ] Build thử, fix 1 game thật cho chạy hết luồng
-- [ ] **Đổi mật khẩu Steam của tất cả account trong DB** — chúng đã ở trong tầm với của bất kỳ
-      ai từng cài bản 1.0.0. Bản vá chặn từ nay về sau, không cứu được cái đã lộ.
+**Giai đoạn 1 — lên sóng (không đụng DB):**
+
+- [ ] Deno Deploy: App directory `./backend`, Entrypoint `main.ts`, Install command để trống
+- [ ] 2 biến `SUPABASE_URL` + `SUPABASE_PUBLISHABLE_KEY`
+- [ ] Chép `ADMIN_TOKEN` từ log lần chạy đầu (chỉ in một lần)
+- [ ] Điền `G4_API_BASE` vào `.env` của app
+- [ ] `deno task e2e https://<project>.deno.dev` — 10/10 pass
+- [ ] Build app, fix 1 game thật cho chạy hết luồng
+
+**Giai đoạn 2 — vá lỗ hổng (đúng thứ tự):**
+
+- [ ] Supabase → API Keys → copy secret key
+- [ ] Đặt `SUPABASE_SERVICE_ROLE_KEY` trên Deno Deploy → redeploy
+- [ ] `/health` phải báo `"bao_mat": "da khoa anon"`
+- [ ] Chạy `sql/khoa_anon.sql`
+- [ ] Chạy `sql/kiem_tra.sql` — truy vấn số 3 phải trả về **0 dòng**
+
+**Không phụ thuộc giai đoạn:**
+
+- [ ] **Đổi mật khẩu Steam của tất cả account** — chúng đã ở trong tầm với của bất kỳ ai từng
+      cài bản 1.0.0. Bản vá chặn từ nay về sau, không cứu được cái đã lộ.
 - [ ] Xoá `.env.bak` sau khi đã chép `SUPABASE_URL` sang backend
-- [ ] Kiểm tra `g4_tool` (app cũ): `sql/01` khoá `anon` khỏi 2 bảng dùng chung, nếu nó vẫn đọc
-      bằng publishable key thì sẽ hỏng
+- [ ] Kiểm tra `g4_tool` (app cũ) trước khi chạy `khoa_anon.sql` — nó dùng chung 2 bảng đó

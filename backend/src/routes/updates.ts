@@ -1,15 +1,8 @@
 // Kiem tra ban cap nhat (installer + hot-update giao dien).
 // Khong chua bi mat -> khong ma hoa response, nhung VAN qua backend de app
 // khong con phai cam key Supabase nao het.
-import { db } from "../supabase.ts";
+import { db, type ReleaseRow } from "../supabase.ts";
 import { ok } from "../http.ts";
-
-interface ReleaseRow {
-  version: string;
-  url: string;
-  notes: string | null;
-  mandatory?: boolean | null;
-}
 
 async function latest(table: string): Promise<Response> {
   const row = await db.selectOne<ReleaseRow>(table, "select=version,url,notes,mandatory&order=created_at.desc");

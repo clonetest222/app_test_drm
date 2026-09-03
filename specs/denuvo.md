@@ -125,11 +125,10 @@ Thay cho cửa sổ cmd: log toàn luồng stream về renderer qua kênh **`den
 |------|-----|---------|
 | `denuvo_requirement` | `url`, `file_type` (direct/zip/rar), `zip_rar` | nguồn tải công cụ fix |
 | `denuvo_accounts` | `id`, `appid`, `username`, `password`, `status`, `fail_count`, `cooldown_until` | account Steam sở hữu game — `password` **plaintext như trước**, nhưng `anon` không đọc được |
-| `denuvo_devices` | `id`, `fingerprint`, `secret_enc`, `revoked` | mỗi máy 1 secret để ký request (secret này thì có mã hoá) |
-| `denuvo_lease_log` | `device_id`, `account_id`, `appid`, `ip`, `result` | audit: ai lấy gì, lúc nào |
-| `denuvo_nonce` | `nonce` | chống replay request đã ký |
 
-Schema: [sql/02_khoa_anon.sql](../sql/02_khoa_anon.sql).
+Backend **không tạo bảng nào** trong Supabase và **không ghi gì** vào đó. Thiết bị, nonce,
+cooldown, đếm lỗi và audit log nằm trong **Deno KV** — xem [backend/src/kv.ts](../backend/src/kv.ts)
+và bảng "Dữ liệu nằm ở đâu" trong [backend/README.md](../backend/README.md).
 
 ## 6. Lưu ý quan trọng
 

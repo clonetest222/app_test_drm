@@ -1,16 +1,12 @@
-// Cau hinh backend — TAT CA bi mat nam o day, KHONG BAO GIO ra client.
-// Deno Deploy: dat trong Settings > Environment Variables.
-// Chay local:  copy .env.example -> .env roi `deno task dev` (Deno tu doc .env).
+// Cau hinh backend.
+//
+// BAT BUOC dung 2 bien — chinh la 2 bien ban da co san tren Deno Deploy:
+//    SUPABASE_URL
+//    SUPABASE_PUBLISHABLE_KEY   (hoac SERVICE_ROLE / SECRET / SUPABASE_KEY)
+//
+// Moi thu khac deu TU SINH va luu trong Deno KV (xem kv.ts: loadSecrets).
+// Muon ghi de thi dat bien moi truong, khong dat cung chay.
 
-function need(name: string): string {
-  const v = Deno.env.get(name);
-  if (!v) throw new Error(`Thieu bien moi truong bat buoc: ${name}`);
-  return v;
-}
-function opt(name: string, dflt: string): string {
-  return Deno.env.get(name) ?? dflt;
-}
-/** Lay bien dau tien co gia tri trong danh sach; khong co cai nao thi bao loi ro rang. */
 function needOneOf(names: string[]): string {
   for (const n of names) {
     const v = Deno.env.get(n);
@@ -18,7 +14,9 @@ function needOneOf(names: string[]): string {
   }
   throw new Error(`Thieu bien moi truong: can mot trong ${names.join(" / ")}`);
 }
-
+function opt(name: string, dflt: string): string {
+  return Deno.env.get(name) ?? dflt;
+}
 function num(name: string, dflt: number): number {
   const v = Deno.env.get(name);
   const n = v ? Number(v) : NaN;
@@ -27,17 +25,14 @@ function num(name: string, dflt: number): number {
 
 export const cfg = {
   /** Supabase project URL, vd https://xxx.supabase.co */
-  supabaseUrl: need("SUPABASE_URL").replace(/\/+$/, ""),
+  supabaseUrl: needOneOf(["SUPABASE_URL"]).replace(/\/+$/, ""),
+
   /**
-   * Key goi Supabase. Nhan nhieu ten de dung lai env san co:
-   *   SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SECRET_KEY  -> di xuyen RLS (nen dung)
-   *   SUPABASE_PUBLISHABLE_KEY  / SUPABASE_KEY         -> chinh la `anon`, BI RLS CHAN
-   *
-   * Dung key anon thi backend chi doc duoc nhung bang con mo policy cho anon.
-   * Tuc la: chua chay sql/02_khoa_anon.sql thi chay duoc, nhung lo hong cu VAN CON
-   * (app cu da phat hanh van dump duoc ca bang). Xem canh bao luc khoi dong.
+   * Key goi Supabase. Backend CHI DOC tu Supabase (accounts / requirement /
+   * releases) nen publishable key la du — mien la bang van con policy cho anon
+   * doc, dung nhu app 1.0.0 van lam.
    */
-  serviceKey: needOneOf([
+  supabaseKey: needOneOf([
     "SUPABASE_SERVICE_ROLE_KEY",
     "SUPABASE_SECRET_KEY",
     "SUPABASE_PUBLISHABLE_KEY",
@@ -45,59 +40,55 @@ export const cfg = {
   ]),
 
   /**
-   * Co dang dung key `anon` (publishable) khong. Dung de canh bao that to luc khoi
-   * dong va bao ra /health, tranh truong hop tuong minh da vá xong ma thuc ra chua.
+   * Dang dung key `anon` (publishable) hay khong.
+   *
+   * Dung anon = backend doc duoc denuvo_accounts, nhung AI CO KEY DO CUNG DOC
+   * DUOC — ke ca qua app 1.0.0 da phat hanh. Bao ra /health de khong ai tuong
+   * nham la da va xong.
    */
   usingAnonKey: !Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") && !Deno.env.get("SUPABASE_SECRET_KEY"),
 
-  /** Khoa AES-256-GCM (base64, 32 byte) ma hoa password + device secret. `deno task keygen`. */
-  encKey: need("CRED_ENC_KEY"),
+  // ---- deu TUY CHON: khong dat thi tu sinh / tu bo qua ----
 
-  /** Token app gui khi dang ky device lan dau. KHONG phai bi mat that (nam trong app,
-   *  ai cung rut duoc) — chi la rao can toc do; bao ve that nam o rate limit + audit. */
-  enrollToken: need("ENROLL_TOKEN"),
+  /** Khoa AES-256-GCM base64. Khong dat -> sinh 1 lan va giu trong KV. */
+  encKeyEnv: opt("CRED_ENC_KEY", ""),
 
-  /** Token cho cac endpoint /v1/admin/* — CHI dung tu may ban, khong nhung vao app. */
-  adminToken: need("ADMIN_TOKEN"),
+  /** Token quan tri. Khong dat -> sinh 1 lan, in ra log luc khoi dong. */
+  adminTokenEnv: opt("ADMIN_TOKEN", ""),
+
+  /**
+   * Token app gui khi dang ky thiet bi. Khong dat -> BO QUA kiem tra, chi con
+   * gioi han theo IP. Chap nhan duoc vi token nay von nam trong app, ai cung
+   * rut duoc; no chua bao gio la bi mat that.
+   */
+  enrollToken: opt("ENROLL_TOKEN", ""),
+
+  /** Co ma hoa mat khau tai DB khong. Mac dinh khong — giu plaintext nhu truoc. */
+  encryptAtRest: opt("ENCRYPT_AT_REST", "false").toLowerCase() === "true",
 
   /** Do lech dong ho toi da cua request da ky (ms). */
   maxSkewMs: num("MAX_SKEW_MS", 120_000),
 
-  /** Rate limit phat credential. */
   limits: {
     perDeviceHour: num("LIMIT_DEVICE_HOUR", 12),
     perDeviceDay: num("LIMIT_DEVICE_DAY", 40),
     perDeviceAppid10m: num("LIMIT_DEVICE_APPID_10M", 4),
-    /** Cooldown 1 account sau khi vua phat (giay) — tranh Steam khoa vi login lien tuc. */
     accountCooldownSec: num("ACCOUNT_COOLDOWN_SEC", 90),
-    /** Login fail lien tiep bao nhieu lan thi tu dat status='blocked'. */
     accountFailBlock: num("ACCOUNT_FAIL_BLOCK", 5),
-    /** Dang ky device toi da tren 1 IP trong 1 gio. */
     enrollPerIpHour: num("LIMIT_ENROLL_IP_HOUR", 6),
   },
-
-  /**
-   * Co ma hoa mat khau TAI DB hay khong.
-   *
-   * false (MAC DINH) - dung cot `password` plaintext y nhu truoc. Ban van sua
-   *                    account thang trong Supabase Table Editor nhu binh thuong.
-   * true             - account moi them se duoc ma hoa AES-256-GCM.
-   *
-   * Du dat the nao thi mat khau CUNG KHONG LO QUA API:
-   *   - `anon` co 0 quyen doc bang (RLS dong hoan toan) - app khong con key nao
-   *   - chi endpoint da ky moi xin duoc, va CHI 1 account cho 1 appid
-   *   - payload tra ve nam trong phong bi AES-256-GCM rieng cho tung request
-   *   - khong endpoint nao tra ve mat khau o dang doc duoc, ke ca /v1/admin/*
-   *
-   * Doi lai khi de false: ai doc duoc DB bang service_role van thay plaintext.
-   */
-  encryptAtRest: (Deno.env.get("ENCRYPT_AT_REST") ?? "false").toLowerCase() === "true",
 
   /** Phien ban toi thieu cua app duoc phep goi API ("" = khong ep). */
   minAppVersion: opt("MIN_APP_VERSION", ""),
 
   port: num("PORT", 8000),
   env: opt("DENO_ENV", "production"),
+};
+
+/** Bi mat da giai quyet xong (env hoac KV) — main.ts gan vao luc khoi dong. */
+export const secrets = {
+  encKey: "",
+  adminToken: "",
 };
 
 export type Cfg = typeof cfg;

@@ -8,13 +8,14 @@
 //  Chay local : deno task dev        (doc backend/.env)
 //  Deploy     : Deno Deploy (tro vao main.ts) hoac `deno task start` sau reverse proxy
 // ============================================================================
-import { cfg } from "./src/config.ts";
+import { cfg, secrets } from "./src/config.ts";
 import { requireAdmin, requireDevice } from "./src/auth.ts";
 import { clientIp, fail, HttpError, logLine, ok } from "./src/http.ts";
 import { enroll } from "./src/routes/devices.ts";
 import { requirement, ticket, ticketResult } from "./src/routes/denuvo.ts";
 import { release, renderer } from "./src/routes/updates.ts";
 import * as admin from "./src/routes/admin.ts";
+import { loadSecrets } from "./src/kv.ts";
 
 async function route(req: Request, info?: Deno.ServeHandlerInfo): Promise<Response> {
   const url = new URL(req.url);
@@ -52,8 +53,9 @@ async function route(req: Request, info?: Deno.ServeHandlerInfo): Promise<Respon
   // ---- quan tri ----
   if (path.startsWith("/v1/admin/")) {
     requireAdmin(req);
-    if (path === "/v1/admin/accounts" && req.method === "POST") return await admin.addAccount(bodyText);
     if (path === "/v1/admin/accounts" && req.method === "GET") return await admin.listAccounts(url);
+    if (path === "/v1/admin/accounts/reset" && req.method === "POST") return await admin.resetAccount(bodyText);
+    if (path === "/v1/admin/devices" && req.method === "GET") return await admin.devices(url);
     if (path === "/v1/admin/devices/revoke" && req.method === "POST") return await admin.revokeDevice(bodyText);
     if (path === "/v1/admin/audit" && req.method === "GET") return await admin.audit(url);
     if (path === "/v1/admin/health" && req.method === "GET") return await admin.health();
@@ -93,20 +95,45 @@ export default handler;
 // server khong mo cong nao ca, deploy bao "Warm up failed" rat kho tim ra.
 // Neu file duoc chay bang `deno serve` thi default export da mo cong roi -> lan
 // bind thu hai nem AddrInUse, nuot di la xong.
+// Nap bi mat TRUOC khi phuc vu request dau tien. Khong dat trong env thi tu
+// sinh va giu trong Deno KV -> backend chay duoc voi dung 2 bien SUPABASE_*.
+const s = await loadSecrets({ encKey: cfg.encKeyEnv, adminToken: cfg.adminTokenEnv });
+secrets.encKey = s.encKey;
+secrets.adminToken = s.adminToken;
+
 if (import.meta.main) {
+  const canhBao: string[] = [];
   if (cfg.usingAnonKey) {
-    console.warn(
-      [
-        "",
-        "!!! DANG DUNG KEY ANON (publishable) !!!",
-        "    Backend chay duoc, nhung `anon` van doc duoc denuvo_accounts, nghia la",
-        "    app 1.0.0 da phat hanh VAN dump duoc ca kho tai khoan Steam.",
-        "    De dong han: lay secret key o Supabase > Project Settings > API Keys,",
-        "    dat vao SUPABASE_SERVICE_ROLE_KEY, roi chay sql/02_khoa_anon.sql.",
-        "",
-      ].join("\n"),
+    canhBao.push(
+      "!!! DANG DUNG KEY ANON (publishable) !!!",
+      "    Backend chay duoc, nhung `anon` van doc duoc denuvo_accounts, nghia la",
+      "    app 1.0.0 da phat hanh VAN dump duoc ca kho tai khoan Steam.",
+      "    De dong han: lay secret key o Supabase > Project Settings > API Keys,",
+      "    dat vao SUPABASE_SERVICE_ROLE_KEY, roi chay sql/02_khoa_anon.sql.",
+      "",
     );
   }
+  if (!cfg.enrollToken) {
+    canhBao.push(
+      "ENROLL_TOKEN khong dat -> bo qua kiem tra khi dang ky thiet bi.",
+      "    Chi con gioi han theo IP. Dat bien do (trung G4_ENROLL_TOKEN cua app) de siet lai.",
+      "",
+    );
+  }
+  if (s.freshAdminToken) {
+    // In DUY NHAT lan dau. Cac lan sau doc lai tu KV nen khong in nua.
+    canhBao.push(
+      "ADMIN_TOKEN vua duoc sinh va luu vao Deno KV. CHEP LAI NGAY:",
+      "",
+      "    " + s.adminToken,
+      "",
+      "    Dung o header X-G4-Admin cho cac endpoint /v1/admin/*.",
+      "    Muon tu dat thi khai bien ADMIN_TOKEN, no se de len gia tri nay.",
+      "",
+    );
+  }
+  if (canhBao.length) console.warn("\n" + canhBao.join("\n"));
+
   try {
     Deno.serve(
       { port: cfg.port, onListen: (a) => console.log(`G4play Denuvo API dang chay tren cong ${a.port}`) },
