@@ -1,0 +1,52 @@
+{
+  "name": "g4play-denuvo-manage",
+  "productName": "G4play Denuvo Manage",
+  "version": "1.1.0",
+  "description": "G4play Denuvo Manage - quet & fix Denuvo, credential di qua backend Deno",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis",
+    "backend:dev": "deno task --cwd backend dev",
+    "backend:deploy": "deployctl deploy --project=g4play-denuvo --entrypoint=backend/main.ts"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.g4market.denuvo",
+    "productName": "G4play Denuvo Manage",
+    "directories": {
+      "output": "installer"
+    },
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "api.js",
+      "index.html",
+      "styles.css",
+      ".env",
+      "g4market.ico",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "g4market.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "G4playDenuvoManage-Setup-${version}.${ext}",
+      "shortcutName": "G4play Denuvo Manage",
+      "uninstallDisplayName": "G4play Denuvo Manage",
+      "installerIcon": "g4market.ico",
+      "uninstallerIcon": "g4market.ico",
+      "installerHeaderIcon": "g4market.ico",
+      "include": "installer.nsh"
+    }
+  }
+}

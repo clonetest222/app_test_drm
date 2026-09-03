@@ -1,0 +1,5 @@
+.env
+.env.local
+*.log
+accounts.json
+accounts.csv

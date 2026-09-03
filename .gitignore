@@ -1,0 +1,10 @@
+node_modules/
+installer/
+dist/
+build/
+temp/
+update/
+renderer_update/
+.env.bak
+accounts.json
+accounts.csv

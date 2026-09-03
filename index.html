@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>G4play Denuvo Manage</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="window" id="window">
+    <!-- Title bar -->
+    <header class="titlebar">
+      <div class="brand">
+        <span class="logo">G</span>
+        <span class="brand-name">G4play Denuvo Manage</span>
+      </div>
+      <div class="win-controls">
+        <!-- macOS dots -->
+        <div class="mac-dots">
+          <span class="dot green"></span>
+          <span class="dot yellow" data-win="min"></span>
+          <span class="dot red" data-win="close"></span>
+        </div>
+        <!-- Windows buttons -->
+        <div class="win-btns">
+          <button class="winbtn" data-win="min" title="Thu nhỏ"><svg viewBox="0 0 12 12"><line x1="2" y1="6" x2="10" y2="6"/></svg></button>
+          <button class="winbtn close" data-win="close" title="Đóng"><svg viewBox="0 0 12 12"><line x1="2.5" y1="2.5" x2="9.5" y2="9.5"/><line x1="9.5" y1="2.5" x2="2.5" y2="9.5"/></svg></button>
+        </div>
+      </div>
+    </header>
+
+    <main class="content">
+      <!-- Thong bao co ban moi (hien luc mo app) -->
+      <div class="update-banner hidden" id="update-banner">
+        <span class="ub-ic">🎉</span>
+        <span class="ub-msg">Đã có bản mới <b id="ub-ver"></b>!</span>
+        <button class="link" id="ub-goto">Xem &amp; cập nhật</button>
+        <button class="ub-close" id="ub-close" title="Đóng">✕</button>
+      </div>
+
+      <!-- Tabs -->
+      <nav class="tabs">
+        <button class="tab active" data-tab="denuvo">Denuvo</button>
+        <button class="tab" data-tab="settings">Cài đặt</button>
+      </nav>
+
+      <!-- ============ PANEL: DENUVO ============ -->
+      <div class="panel" id="panel-denuvo">
+        <div class="lib-head">
+          <h3 id="dv-title">Denuvo</h3>
+          <div class="lib-actions">
+            <button class="link" id="dv-fix-manual">🛠 Fix thủ công</button>
+            <button class="link" id="dv-scan">⟳ Quét lại</button>
+          </div>
+        </div>
+        <p class="hint"><span class="hint-ic">ⓘ</span> Quét thư viện để tìm game <b>Denuvo</b>, bấm vào 1 game để lấy ticket (hiệu lực 30 phút). Game sạch được bỏ qua.</p>
+        <div class="grid" id="dv-grid"><div class="lib-empty">Đang tải...</div></div>
+      </div>
+
+      <!-- ============ PANEL: SETTINGS ============ -->
+      <div class="panel hidden" id="panel-settings">
+        <section class="set-card">
+          <div class="set-row">
+            <div><div class="set-label">Phiên bản</div><div class="set-sub">G4play Denuvo Manage</div></div>
+            <div class="set-val" id="app-version">—</div>
+          </div>
+        </section>
+
+        <!-- Cap nhat -->
+        <section class="set-card" id="update-card">
+          <div class="set-row">
+            <div><div class="set-label">Cập nhật</div><div class="set-sub" id="update-sub">Đang kiểm tra bản mới...</div></div>
+            <button class="btn primary small hidden" id="btn-install-update">Cài bản mới</button>
+          </div>
+          <div class="changelog hidden" id="changelog">
+            <div class="cl-notes" id="cl-notes"></div>
+            <a href="#" class="cl-link hidden" id="cl-link" target="_blank">→ Link download</a>
+          </div>
+        </section>
+
+        <section class="set-card">
+          <div class="set-row">
+            <div><div class="set-label">Thanh đóng app</div><div class="set-sub">Kiểu nút thu nhỏ / đóng cửa sổ</div></div>
+            <div class="seg" id="titlebar-seg">
+              <button class="seg-btn" data-style="windows">Windows</button>
+              <button class="seg-btn" data-style="macos">macOS</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="set-card">
+          <div class="set-row">
+            <div><div class="set-label">Thư mục Steam</div><div class="set-sub steam-path" id="steam-path">Đang kiểm tra...</div></div>
+          </div>
+          <div class="set-sub" id="lua-dirs">—</div>
+          <button class="btn ghost small" id="btn-set-steam">📁 Set thủ công</button>
+        </section>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span class="status"><span class="status-dot"></span><span id="status-text">Sẵn sàng quét Denuvo...</span></span>
+      <span class="copy">G4play © 2026</span>
+    </footer>
+  </div>
+
+  <!-- Modal cập nhật (hiện giữa màn hình lúc mở app, không tự tắt) -->
+  <div class="modal-overlay hidden" id="update-modal">
+    <div class="umodal">
+      <div class="umodal-ic">🎉</div>
+      <h3 class="umodal-title">Đã có bản mới <span id="um-ver"></span></h3>
+      <p class="umodal-sub" id="um-sub"></p>
+      <div class="changelog" id="um-changelog">
+        <div class="cl-notes" id="um-notes"></div>
+        <a href="#" class="cl-link hidden" id="um-link" target="_blank">→ Link download</a>
+      </div>
+      <div class="update-prog hidden" id="um-prog">
+        <div class="up-bar"><div class="up-fill" id="um-fill"></div><span class="up-pct" id="um-pct">0%</span></div>
+        <span class="up-stage" id="um-text">Đang tải...</span>
+        <a href="#" class="cl-link hidden" id="um-folder">📂 Mở folder update</a>
+      </div>
+      <div class="umodal-actions">
+        <button class="btn primary" id="um-install">Cài bản mới</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Fix Denuvo thủ công: nhập appid -> kiểm tra Denuvo/DRM -> fix -->
+  <div class="modal-overlay hidden" id="denuvo-modal">
+    <div class="umodal dv-modal">
+      <h3 class="umodal-title">🛠 Fix Denuvo thủ công</h3>
+      <p class="umodal-sub">Nhập AppID để kiểm tra Denuvo/DRM trên store rồi fix thủ công.</p>
+      <div class="input-wrap">
+        <input type="text" id="denuvo-appid" placeholder="VD: 1245620" autocomplete="off" />
+      </div>
+      <div class="dv-result" id="denuvo-result"></div>
+      <div class="umodal-actions">
+        <button class="btn ghost" id="denuvo-check-btn">🔍 Kiểm tra</button>
+        <button class="btn primary" id="denuvo-fix-btn" disabled>🛠 Fix</button>
+        <button class="btn ghost" id="denuvo-modal-cancel">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Popup góc phải: báo ticket Denuvo hết hiệu lực (30 phút) -->
+  <div id="denuvo-toasts" class="denuvo-toasts"></div>
+
+  <!-- Terminal trong app: stream log của luồng fix Denuvo -->
+  <div class="modal-overlay hidden" id="denuvo-term-modal">
+    <div class="umodal dvterm-card">
+      <h3 class="umodal-title">⌨ Denuvo — <span id="dvterm-title">tiến trình</span></h3>
+      <div class="dvterm-log" id="dvterm-log"></div>
+      <div class="umodal-actions">
+        <button class="btn ghost" id="dvterm-done">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
