@@ -24,7 +24,16 @@ async function route(req: Request, info?: Deno.ServeHandlerInfo): Promise<Respon
   const bodyText = req.method === "GET" || req.method === "HEAD" ? "" : await req.text();
 
   if (path === "/" || path === "/health") {
-    return ok({ ok: true, service: "g4play-denuvo-manage", env: cfg.env, time: new Date().toISOString() });
+    return ok({
+      ok: true,
+      service: "g4play-denuvo-manage",
+      env: cfg.env,
+      // Bao ra day de nhin mot cai la biet lo hong da dong chua, khong phai doan.
+      bao_mat: cfg.usingAnonKey
+        ? "CHUA VA XONG - dang dung key anon, chay sql/02_khoa_anon.sql khi san sang"
+        : "da khoa anon",
+      time: new Date().toISOString(),
+    });
   }
 
   // ---- cong khai (co enroll token) ----
@@ -85,6 +94,19 @@ export default handler;
 // Neu file duoc chay bang `deno serve` thi default export da mo cong roi -> lan
 // bind thu hai nem AddrInUse, nuot di la xong.
 if (import.meta.main) {
+  if (cfg.usingAnonKey) {
+    console.warn(
+      [
+        "",
+        "!!! DANG DUNG KEY ANON (publishable) !!!",
+        "    Backend chay duoc, nhung `anon` van doc duoc denuvo_accounts, nghia la",
+        "    app 1.0.0 da phat hanh VAN dump duoc ca kho tai khoan Steam.",
+        "    De dong han: lay secret key o Supabase > Project Settings > API Keys,",
+        "    dat vao SUPABASE_SERVICE_ROLE_KEY, roi chay sql/02_khoa_anon.sql.",
+        "",
+      ].join("\n"),
+    );
+  }
   try {
     Deno.serve(
       { port: cfg.port, onListen: (a) => console.log(`G4play Denuvo API dang chay tren cong ${a.port}`) },

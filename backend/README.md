@@ -20,13 +20,13 @@ bảng `denuvo_accounts` nữa.
 
 ### 1.1 Chạy SQL
 
-Supabase → SQL Editor → chạy [`../sql/01_denuvo_secure.sql`](../sql/01_denuvo_secure.sql).
+Supabase → SQL Editor → chạy [`../sql/01_bang_moi.sql`](../sql/01_bang_moi.sql).
 
-File này **giữ nguyên cột `password` plaintext**, tạo 3 bảng mới (`denuvo_devices`,
-`denuvo_nonce`, `denuvo_lease_log`), và — quan trọng nhất — **xoá sạch mọi policy `anon`
-trên `denuvo_accounts` + `denuvo_requirement`**.
+File này **chỉ thêm**, không xoá policy nào: 3 bảng backend cần (`denuvo_devices`, `denuvo_nonce`,
+`denuvo_lease_log`) + vài cột phụ cho `denuvo_accounts`. Chạy xong app 1.0.0 vẫn hoạt động y như cũ.
 
-Đó là dòng vá lỗ hổng: từ đây `anon` (key nằm trong app) đọc được **0 dòng**.
+Việc khoá `anon` — thứ thực sự vá lỗ hổng — nằm ở [`../sql/02_khoa_anon.sql`](../sql/02_khoa_anon.sql),
+chạy sau, khi backend đã có secret key. Xem [§7](#7-hai-giai-đoạn).
 
 ### 1.2 Sinh khoá
 
@@ -59,7 +59,7 @@ curl http://localhost:8000/health
 **Không cần migrate gì cả.** Cột `password` trong `denuvo_accounts` vẫn là plaintext, bạn vẫn
 thêm/sửa account thẳng trong Supabase Table Editor như trước.
 
-Cái thay đổi là **ai đọc được nó**: sau `01_denuvo_secure.sql`, `anon` có 0 quyền trên bảng này,
+Cái thay đổi là **ai đọc được nó**: sau `02_khoa_anon.sql`, `anon` có 0 quyền trên bảng này,
 và app không còn key Supabase nào. Chỉ backend đọc được, và nó chỉ nhả ra 1 account cho 1 appid,
 trong phong bì mã hoá.
 
@@ -264,3 +264,35 @@ deno task interop    # xác nhận Deno seal <-> Node open khớp nhau
 deno task migrate    # TUỲ CHỌN: mã hoá tại DB (chỉ khi ENCRYPT_AT_REST=true)
 deno task deploy     # deployctl (sửa --project cho đúng tên)
 ```
+
+---
+
+## 7. Hai giai đoạn
+
+Backend chạy được ở **cả hai** chế độ key, và tự báo mình đang ở chế độ nào.
+
+| | Giai đoạn 1 | Giai đoạn 2 |
+|---|---|---|
+| Key backend dùng | `SUPABASE_PUBLISHABLE_KEY` (= `anon`) | `SUPABASE_SERVICE_ROLE_KEY` |
+| SQL đã chạy | `01_bang_moi.sql` | thêm `02_khoa_anon.sql` |
+| `/health` báo | `"CHUA VA XONG"` | `"da khoa anon"` |
+| Rate limit / audit / phong bì mã hoá | có | có |
+| App 1.0.0 còn dump được kho tài khoản | **CÒN** | hết |
+| Ai có publishable key ghi rác vào bảng audit | được | không |
+
+Code tự chọn key theo thứ tự `SUPABASE_SERVICE_ROLE_KEY` → `SUPABASE_SECRET_KEY` →
+`SUPABASE_PUBLISHABLE_KEY` → `SUPABASE_KEY`, và in cảnh báo lớn lúc khởi động nếu đang ở
+giai đoạn 1 — để không ai tưởng nhầm là đã vá xong.
+
+**Giai đoạn 1 không phải là đích đến.** Nó chỉ giúp lên sóng sớm và kiểm thử toàn bộ luồng.
+Lỗ hổng thật sự — kho tài khoản Steam đọc được bằng key rút từ app đã phát hành — chỉ đóng
+lại ở giai đoạn 2.
+
+### Thứ tự bắt buộc khi chuyển sang giai đoạn 2
+
+1. Đặt `SUPABASE_SERVICE_ROLE_KEY` trên Deno Deploy → redeploy
+2. `curl .../health` → **phải** thấy `"bao_mat": "da khoa anon"`
+3. Chỉ khi đó mới chạy `02_khoa_anon.sql`
+
+Làm ngược lại (chạy SQL trước) thì backend bị khoá cùng với `anon`, app báo "chưa có tài khoản
+khả dụng" với mọi game cho tới khi bạn đặt key.

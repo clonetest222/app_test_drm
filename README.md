@@ -54,20 +54,34 @@ Chi tiết + phần **không** chặn được: [specs/security.md](specs/securi
 
 ## Thiết lập lần đầu
 
-1. Supabase SQL Editor → chạy [`sql/01_denuvo_secure.sql`](sql/01_denuvo_secure.sql)
-2. `cd backend && deno task keygen` → dán biến môi trường lên https://dash.deno.com
-   (entrypoint `backend/main.ts`)
-3. Điền [`.env`](.env) của app: `G4_API_BASE` (URL `.deno.dev`) + `G4_ENROLL_TOKEN`
-   (trùng `ENROLL_TOKEN` của backend)
-4. Fix thử 1 game cho chạy hết luồng
-5. Chạy [`sql/02_kiem_tra_ma_hoa.sql`](sql/02_kiem_tra_ma_hoa.sql) để đối chiếu — truy vấn số 1
-   **phải trả về 0 dòng** (không còn policy `anon` nào)
+Chia làm 2 giai đoạn để có thể lên sóng ngay mà chưa cần đụng tới key nhạy cảm.
 
-Không có bước migrate: tài khoản giữ nguyên như đang có.
+### Giai đoạn 1 — chạy được (dùng lại env đang có)
 
-Checklist đầy đủ ở cuối [specs/security.md](specs/security.md).
+1. Supabase SQL Editor → chạy [`sql/01_bang_moi.sql`](sql/01_bang_moi.sql)
+   *(chỉ THÊM bảng/cột, không xoá policy nào — app 1.0.0 vẫn chạy bình thường)*
+2. Deno Deploy → **App directory** `./backend`, **Entrypoint** `main.ts`, **Install command** để trống
+3. Environment Variables — giữ nguyên `SUPABASE_URL` + `SUPABASE_PUBLISHABLE_KEY` đang có,
+   thêm 3 biến: `CRED_ENC_KEY`, `ENROLL_TOKEN`, `ADMIN_TOKEN` (`deno task keygen` sinh cho)
+4. Điền [`.env`](.env) của app: `G4_API_BASE` + `G4_ENROLL_TOKEN` (trùng `ENROLL_TOKEN`)
+5. Fix thử 1 game cho chạy hết luồng
 
----
+Xong bước này backend chạy, có rate limit / audit / phong bì mã hoá. **Nhưng lỗ hổng cũ vẫn mở** —
+`curl https://<project>.deno.dev/health` sẽ báo `"bao_mat": "CHUA VA XONG"`.
+
+### Giai đoạn 2 — vá lỗ hổng
+
+6. Supabase → **Project Settings → API Keys** → copy secret key (`sb_secret_...`)
+   hoặc legacy `service_role`
+7. Deno Deploy → thêm biến `SUPABASE_SERVICE_ROLE_KEY` = key đó → redeploy
+8. `curl .../health` phải báo `"bao_mat": "da khoa anon"` **trước khi** làm bước 9
+9. Supabase SQL Editor → chạy [`sql/02_khoa_anon.sql`](sql/02_khoa_anon.sql)
+10. Chạy [`sql/03_kiem_tra.sql`](sql/03_kiem_tra.sql) — truy vấn số 1 phải trả về **0 dòng**
+
+> ⚠️ Chạy bước 9 khi backend vẫn đang dùng publishable key thì backend chết ngay: nó bị khoá
+> cùng với `anon`. Bước 8 là để tránh đúng chuyện đó.
+
+Không có bước migrate: tài khoản giữ nguyên plaintext như đang có.
 
 ## Hành vi đáng chú ý
 
@@ -91,7 +105,7 @@ Ticket ghi vào `g4_tool.lua` chỉ có tác dụng khi máy **đã có sẵn fi
 Cùng project Supabase, cùng 2 bảng `denuvo_requirement` + `denuvo_accounts`.
 `temp\extracted\extract_tickets.exe` đã chép sẵn nên lần chạy đầu không phải tải lại.
 
-> ⚠️ `sql/01_denuvo_secure.sql` **khoá `anon` khỏi 2 bảng dùng chung này**. Nếu `g4_tool` vẫn
+> ⚠️ `sql/02_khoa_anon.sql` **khoá `anon` khỏi 2 bảng dùng chung này**. Nếu `g4_tool` vẫn
 > đọc chúng bằng publishable key thì nó sẽ hỏng — phải cho `g4_tool` đi qua backend này luôn,
 > hoặc tách bảng riêng cho từng app.
 

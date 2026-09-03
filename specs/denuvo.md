@@ -129,7 +129,7 @@ Thay cho cửa sổ cmd: log toàn luồng stream về renderer qua kênh **`den
 | `denuvo_lease_log` | `device_id`, `account_id`, `appid`, `ip`, `result` | audit: ai lấy gì, lúc nào |
 | `denuvo_nonce` | `nonce` | chống replay request đã ký |
 
-Schema: [sql/01_denuvo_secure.sql](../sql/01_denuvo_secure.sql).
+Schema: [sql/02_khoa_anon.sql](../sql/02_khoa_anon.sql).
 
 ## 6. Lưu ý quan trọng
 

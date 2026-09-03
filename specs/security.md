@@ -98,9 +98,11 @@ Bật lên chỉ cần sửa backend, **không phải phát hành app mới**.
 
 ## 4. Việc phải làm khi phát hành
 
-- [ ] Chạy `sql/01_denuvo_secure.sql`
+- [ ] Chạy `sql/01_bang_moi.sql` (bắt buộc — tạo bảng backend cần, không đụng policy)
 - [ ] `deno task keygen` → điền biến môi trường trên dash.deno.com (entrypoint `backend/main.ts`)
-- [ ] Chạy `sql/02_kiem_tra_ma_hoa.sql` — **truy vấn số 1 phải trả về 0 dòng** (không còn policy
+- [ ] Đặt `SUPABASE_SERVICE_ROLE_KEY`, kiểm tra `/health` báo `"da khoa anon"`
+- [ ] Chạy `sql/02_khoa_anon.sql` — **đây mới là bước vá lỗ hổng**, làm sau bước trên
+- [ ] Chạy `sql/03_kiem_tra.sql` — **truy vấn số 1 phải trả về 0 dòng** (không còn policy
       `anon` nào trên `denuvo_accounts` / `denuvo_requirement`). Đây là bước xác nhận lỗ hổng
       đã đóng; các truy vấn còn lại chỉ để đối chiếu.
 - [ ] Điền `G4_API_BASE` + `G4_ENROLL_TOKEN` vào `.env` của app

@@ -10,6 +10,15 @@ function need(name: string): string {
 function opt(name: string, dflt: string): string {
   return Deno.env.get(name) ?? dflt;
 }
+/** Lay bien dau tien co gia tri trong danh sach; khong co cai nao thi bao loi ro rang. */
+function needOneOf(names: string[]): string {
+  for (const n of names) {
+    const v = Deno.env.get(n);
+    if (v) return v;
+  }
+  throw new Error(`Thieu bien moi truong: can mot trong ${names.join(" / ")}`);
+}
+
 function num(name: string, dflt: number): number {
   const v = Deno.env.get(name);
   const n = v ? Number(v) : NaN;
@@ -19,8 +28,27 @@ function num(name: string, dflt: number): number {
 export const cfg = {
   /** Supabase project URL, vd https://xxx.supabase.co */
   supabaseUrl: need("SUPABASE_URL").replace(/\/+$/, ""),
-  /** SERVICE ROLE key — di xuyen RLS. Ro ri key nay = ro ri toan bo DB. */
-  serviceKey: need("SUPABASE_SERVICE_ROLE_KEY"),
+  /**
+   * Key goi Supabase. Nhan nhieu ten de dung lai env san co:
+   *   SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SECRET_KEY  -> di xuyen RLS (nen dung)
+   *   SUPABASE_PUBLISHABLE_KEY  / SUPABASE_KEY         -> chinh la `anon`, BI RLS CHAN
+   *
+   * Dung key anon thi backend chi doc duoc nhung bang con mo policy cho anon.
+   * Tuc la: chua chay sql/02_khoa_anon.sql thi chay duoc, nhung lo hong cu VAN CON
+   * (app cu da phat hanh van dump duoc ca bang). Xem canh bao luc khoi dong.
+   */
+  serviceKey: needOneOf([
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_SECRET_KEY",
+    "SUPABASE_PUBLISHABLE_KEY",
+    "SUPABASE_KEY",
+  ]),
+
+  /**
+   * Co dang dung key `anon` (publishable) khong. Dung de canh bao that to luc khoi
+   * dong va bao ra /health, tranh truong hop tuong minh da vá xong ma thuc ra chua.
+   */
+  usingAnonKey: !Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") && !Deno.env.get("SUPABASE_SECRET_KEY"),
 
   /** Khoa AES-256-GCM (base64, 32 byte) ma hoa password + device secret. `deno task keygen`. */
   encKey: need("CRED_ENC_KEY"),

@@ -1,10 +1,11 @@
 -- ============================================================================
---  KIEM TRA sau khi chay 01_denuvo_secure.sql.
+--  KIEM TRA - chay luc nao cung duoc.
 --  File nay CHI DOC - khong xoa, khong sua gi het.
 --
 --  Quyet dinh cua du an: cot `password` GIU NGUYEN plaintext, ban van nhap tay
 --  tren Supabase Table Editor nhu truoc. Bao ve nam o TANG TRUY CAP:
---    - anon co 0 quyen doc bang (truy van so 1 duoi day xac nhan)
+--    - anon co 0 quyen doc bang SAU KHI chay 02_khoa_anon.sql
+--      (truy van so 1 duoi day xac nhan - truoc do no se con tra ve dong)
 --    - app khong con key Supabase nao
 --    - backend chi nha ra 1 account cho 1 appid, trong phong bi ma hoa
 --    - khong endpoint nao tra mat khau ra dang doc duoc, ke ca /v1/admin/*
