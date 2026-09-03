@@ -15,7 +15,7 @@ import { enroll } from "./src/routes/devices.ts";
 import { requirement, ticket, ticketResult } from "./src/routes/denuvo.ts";
 import { release, renderer } from "./src/routes/updates.ts";
 import * as admin from "./src/routes/admin.ts";
-import { loadSecrets } from "./src/kv.ts";
+import { kvIsInMemory, loadSecrets } from "./src/kv.ts";
 
 async function route(req: Request, info?: Deno.ServeHandlerInfo): Promise<Response> {
   const url = new URL(req.url);
@@ -33,6 +33,7 @@ async function route(req: Request, info?: Deno.ServeHandlerInfo): Promise<Respon
       bao_mat: cfg.usingAnonKey
         ? "CHUA VA XONG - dang dung key anon, chay sql/02_khoa_anon.sql khi san sang"
         : "da khoa anon",
+      luu_tru: kvIsInMemory() ? "bo nho tam (chua gan Deno KV)" : "Deno KV",
       time: new Date().toISOString(),
     });
   }
@@ -88,15 +89,8 @@ const handler = {
 // Cho `deno serve main.ts` va cac host dung default export.
 export default handler;
 
-// Va cho `deno run main.ts` — day la cach Deno Deploy chay entrypoint, va cung la
-// cach chay o may/VPS. Deploy cap cong qua bien PORT (cfg.port doc bien do).
-//
-// Goi VO DIEU KIEN, khong do theo DENO_DEPLOYMENT_ID nua: doan sai bien do la
-// server khong mo cong nao ca, deploy bao "Warm up failed" rat kho tim ra.
-// Neu file duoc chay bang `deno serve` thi default export da mo cong roi -> lan
-// bind thu hai nem AddrInUse, nuot di la xong.
-// Nap bi mat TRUOC khi phuc vu request dau tien. Khong dat trong env thi tu
-// sinh va giu trong Deno KV -> backend chay duoc voi dung 2 bien SUPABASE_*.
+// Nap bi mat TRUOC khi phuc vu request dau tien. Khong dat trong env thi tu sinh
+// va giu trong KV -> backend chay duoc voi dung 2 bien SUPABASE_*.
 const s = await loadSecrets({ encKey: cfg.encKeyEnv, adminToken: cfg.adminTokenEnv });
 secrets.encKey = s.encKey;
 secrets.adminToken = s.adminToken;
@@ -134,6 +128,13 @@ if (import.meta.main) {
   }
   if (canhBao.length) console.warn("\n" + canhBao.join("\n"));
 
+  // Mo cong bang `deno run main.ts` — day la cach Deno Deploy chay entrypoint,
+  // va cung la cach chay o may/VPS. Deploy cap cong qua bien PORT.
+  //
+  // Goi VO DIEU KIEN, khong do theo DENO_DEPLOYMENT_ID: doan sai bien do la
+  // server khong mo cong nao ca, deploy bao "Warm up failed" rat kho tim ra.
+  // Neu chay bang `deno serve` thi default export da mo cong roi -> lan bind
+  // thu hai nem AddrInUse, nuot di la xong.
   try {
     Deno.serve(
       { port: cfg.port, onListen: (a) => console.log(`G4play Denuvo API dang chay tren cong ${a.port}`) },

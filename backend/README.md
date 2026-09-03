@@ -28,7 +28,7 @@ SUPABASE_PUBLISHABLE_KEY      (hoặc SERVICE_ROLE / SECRET / SUPABASE_KEY)
 Không phải chạy lệnh SQL nào, không tạo bảng nào, không sinh khoá nào.
 
 **Vì sao được vậy:** state của backend (thiết bị, nonce, cooldown, audit, khoá mã hoá, admin
-token) nằm trong **Deno KV** — có sẵn trên Deno Deploy, `Deno.openKv()` không cần cấu hình.
+token) nằm trong **Deno KV**.
 Supabase chỉ còn được **ĐỌC**: `denuvo_accounts`, `denuvo_requirement`, `denuvo_releases`,
 `denuvo_renderer` — đúng những bảng app 1.0.0 vẫn đọc, nên publishable key là đủ.
 
@@ -40,6 +40,19 @@ Supabase chỉ còn được **ĐỌC**: `denuvo_accounts`, `denuvo_requirement`
 4. **Install command**: để trống — Deno không cần `npm install`
 5. **Environment Variables**: 2 biến ở trên
 6. Deploy
+
+### Gắn Deno KV (khuyến nghị, 1 click)
+
+Deno Deploy → **Databases** → gắn một KV database vào app → deploy lại.
+
+**Không gắn cũng chạy được** — backend tự rơi xuống bản lưu trong bộ nhớ. Khác biệt duy nhất là
+mỗi lần isolate khởi động lại thì:
+
+* thiết bị phải đăng ký lại — app tự làm, người dùng không thấy gì
+* bộ đếm rate limit về 0 — yếu đi, không hỏng
+* audit log mất — mất dấu vết
+
+`/health` báo `"luu_tru"` là `"Deno KV"` hay `"bo nho tam (chua gan Deno KV)"`.
 
 #### Nếu quên đặt App directory
 

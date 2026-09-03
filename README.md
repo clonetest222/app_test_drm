@@ -59,7 +59,8 @@ Không chạy SQL, không tạo bảng, không sinh khoá.
 1. Deno Deploy → **New Project** → Deploy from GitHub → repo này
 2. **App directory** `./backend` · **Entrypoint** `main.ts` · **Install command** để trống
 3. Environment Variables — giữ nguyên `SUPABASE_URL` + `SUPABASE_PUBLISHABLE_KEY`
-4. Deploy. Lần chạy đầu backend tự sinh khoá mã hoá + admin token, lưu vào Deno KV.
+4. Deploy. (Tuỳ chọn, 1 click: **Databases** → gắn một KV database, để state sống qua restart.
+   Không gắn cũng chạy.) Lần chạy đầu backend tự sinh khoá mã hoá + admin token.
    **Xem log lúc khởi động để chép `ADMIN_TOKEN`** — nó chỉ in ra một lần.
 5. Lấy URL `.deno.dev` → điền `G4_API_BASE` trong [`.env`](.env) của app
 6. Kiểm tra: `deno task e2e https://<project>.deno.dev`

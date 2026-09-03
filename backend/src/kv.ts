@@ -21,13 +21,50 @@
 //    ["lease", ts_rand]                audit, TTL 90 ngay
 // ============================================================================
 import { hex, randomBytes } from "./crypto.ts";
+import { MemKv } from "./memkv.ts";
 
-let _kv: Deno.Kv | null = null;
+// Chi dung mot phan nho cua API Deno.Kv -> khai bao vua du de MemKv thay the duoc.
+type KvLike = Pick<Deno.Kv, "get" | "getMany" | "set" | "list" | "atomic">;
 
-/** Mo KV (1 lan cho ca tien trinh). Tren Deno Deploy khong can cau hinh gi. */
-export async function kv(): Promise<Deno.Kv> {
-  if (!_kv) _kv = await Deno.openKv();
+let _kv: KvLike | null = null;
+let _inMemory = false;
+
+/**
+ * Mo KV. Deno Deploy doi phai GAN mot KV database trong dashboard truoc; chua
+ * gan thi Deno.openKv() nem loi. Thay vi chet luc khoi dong, roi xuong ban
+ * trong bo nho — backend van chay, chi mat state khi isolate khoi dong lai.
+ * Gan KV trong dashboard la tu dong dung KV that, khong phai sua code.
+ */
+export async function kv(): Promise<KvLike> {
+  if (_kv) return _kv;
+  try {
+    _kv = await Deno.openKv();
+  } catch (e) {
+    _inMemory = true;
+    console.warn(
+      [
+        "",
+        "!!! KHONG MO DUOC DENO KV - dang chay bang bo nho tam !!!",
+        "    " + String(e instanceof Error ? e.message : e),
+        "",
+        "    Backend van chay binh thuong. Nhung moi lan isolate khoi dong lai:",
+        "      - thiet bi phai dang ky lai (app tu lam, nguoi dung khong thay gi)",
+        "      - bo dem rate limit ve 0",
+        "      - audit log mat",
+        "",
+        "    Khac phuc: Deno Deploy > Databases > gan mot KV database vao app",
+        "    roi deploy lai. Khong phai sua code.",
+        "",
+      ].join("\n"),
+    );
+    _kv = new MemKv() as unknown as KvLike;
+  }
   return _kv;
+}
+
+/** Dang chay bang bo nho tam hay KV that (bao ra /health). */
+export function kvIsInMemory(): boolean {
+  return _inMemory;
 }
 
 // ---------------------------------------------------------------- bi mat
@@ -180,12 +217,24 @@ export async function bumpCounter(parts: (string | number)[], windowMs: number):
   const db = await kv();
   const bucket = Math.floor(Date.now() / windowMs);
   const key = ["rate", ...parts, bucket] as Deno.KvKey;
-  const res = await db.atomic().sum(key, 1n).commit();
-  if (!res.ok) return 0;
-  const cur = await db.get<Deno.KvU64>(key);
-  // Dat han cho ban ghi (sum khong nhan expireIn) -> ghi de bang chinh gia tri do.
-  await db.set(key, cur.value ?? new Deno.KvU64(1n), { expireIn: windowMs * 2 });
-  return Number(cur.value?.value ?? 1n);
+
+  // Dung SO THUONG, khong dung Deno.KvU64: kieu do chi ton tai khi KV bat, ma
+  // ban du phong trong bo nho thi khong co. Doi lai phai tu cong.
+  const cur = await db.get<number>(key);
+  const next = (typeof cur.value === "number" ? cur.value : 0) + 1;
+
+  // Ghi co kiem versionstamp -> hai request cung luc thi mot cai thua, thu lai
+  // mot lan roi thoi. Rate limit khong can chinh xac tuyet doi.
+  const res = await db.atomic()
+    .check({ key, versionstamp: cur.versionstamp })
+    .set(key, next, { expireIn: windowMs * 2 })
+    .commit();
+  if (res.ok) return next;
+
+  const again = await db.get<number>(key);
+  const n2 = (typeof again.value === "number" ? again.value : 0) + 1;
+  await db.set(key, n2, { expireIn: windowMs * 2 });
+  return n2;
 }
 
 // ---------------------------------------------------------------- audit
