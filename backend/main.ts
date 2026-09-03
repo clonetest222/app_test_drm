@@ -74,13 +74,23 @@ const handler = {
   },
 } satisfies Deno.ServeDefaultExport;
 
-// Deno Deploy dung default export nay.
+// Cho `deno serve main.ts` va cac host dung default export.
 export default handler;
 
-// Chay truc tiep (`deno task start` tren VPS) -> tu mo cong.
-if (import.meta.main && !Deno.env.get("DENO_DEPLOYMENT_ID")) {
-  Deno.serve(
-    { port: cfg.port, onListen: (a) => console.log(`G4play Denuvo API dang chay: http://localhost:${a.port}`) },
-    handler.fetch,
-  );
+// Va cho `deno run main.ts` — day la cach Deno Deploy chay entrypoint, va cung la
+// cach chay o may/VPS. Deploy cap cong qua bien PORT (cfg.port doc bien do).
+//
+// Goi VO DIEU KIEN, khong do theo DENO_DEPLOYMENT_ID nua: doan sai bien do la
+// server khong mo cong nao ca, deploy bao "Warm up failed" rat kho tim ra.
+// Neu file duoc chay bang `deno serve` thi default export da mo cong roi -> lan
+// bind thu hai nem AddrInUse, nuot di la xong.
+if (import.meta.main) {
+  try {
+    Deno.serve(
+      { port: cfg.port, onListen: (a) => console.log(`G4play Denuvo API dang chay tren cong ${a.port}`) },
+      handler.fetch,
+    );
+  } catch (e) {
+    if (!(e instanceof Deno.errors.AddrInUse)) throw e;
+  }
 }

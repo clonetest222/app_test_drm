@@ -82,8 +82,9 @@ Hoặc hàng loạt: `deno task import accounts.json` (hoặc `.csv` cột `appi
 
 1. Push repo này lên GitHub (`.env` đã nằm trong `.gitignore`, kiểm tra lại cho chắc).
 2. https://dash.deno.com → **New Project** → **Deploy from GitHub** → chọn repo.
-3. **Entrypoint**: `backend/main.ts`
-4. **Settings → Environment Variables** — thêm đúng 5 biến bắt buộc:
+3. **App directory**: `./backend`  ← **bắt buộc**, đừng bỏ qua
+4. **Entrypoint**: `main.ts` (tính từ App directory, nên KHÔNG phải `backend/main.ts`)
+5. **Settings → Environment Variables** — thêm đúng 5 biến bắt buộc:
 
    ```
    SUPABASE_URL
@@ -96,11 +97,25 @@ Hoặc hàng loạt: `deno task import accounts.json` (hoặc `.csv` cột `appi
    (các biến `LIMIT_*`, `ACCOUNT_*`, `MIN_APP_VERSION` là tuỳ chọn — không đặt thì dùng mặc định
    trong [`src/config.ts`](src/config.ts))
 
-5. Deploy xong lấy URL dạng `https://<project>.deno.dev` → dán vào `G4_API_BASE` trong
+6. Deploy xong lấy URL dạng `https://<project>.deno.dev` → dán vào `G4_API_BASE` trong
    [`../.env`](../.env) của app, và đặt `G4_ENROLL_TOKEN` **trùng** với `ENROLL_TOKEN`.
 
 > Backend không dùng import map hay dependency ngoài nào — chỉ TypeScript + WebCrypto có sẵn.
 > Deploy không cần build step, không cần `node_modules`.
+
+#### Nếu quên đặt App directory
+
+Deno Deploy sẽ đọc `package.json` ở **gốc repo** (của app Electron), thấy `"main": "main.js"`,
+rồi chạy nhầm file đó. Log báo:
+
+```
+at file:///app/src/main.js:12:61
+info: Deno supports CommonJS modules in .cjs files...
+Warm up (Failed)
+```
+
+Đó không phải lỗi code — chỉ là trỏ sai entrypoint. Vào **Settings → App directory**
+đặt `./backend`, **Entrypoint** đặt `main.ts`, rồi redeploy.
 
 ### Cách B — deployctl từ máy
 
