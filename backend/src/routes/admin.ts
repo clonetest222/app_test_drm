@@ -90,7 +90,9 @@ export async function audit(url: URL): Promise<Response> {
 /** GET /v1/admin/health — tinh trang tong quan. */
 export async function health(): Promise<Response> {
   const [accounts, devs, leases24h] = await Promise.all([
-    db.select<AccountRow>("denuvo_accounts", "select=id,password,password_enc"),
+    // Chi chon cot CHAC CHAN co. `password_enc` la cot tuy chon, bang mac dinh
+    // khong co no -> chon vao la PostgREST tra 400.
+    db.select<AccountRow>("denuvo_accounts", "select=id,password"),
     listDevices(500),
     countRecentLeases(86_400_000),
   ]);

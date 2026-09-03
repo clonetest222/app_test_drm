@@ -183,7 +183,8 @@ export async function ticketResult(auth: AuthedDevice, bodyText: string, ip: str
 
 /** GET /v1/denuvo/requirement — nguon tai extract_tickets. */
 export async function requirement(auth: AuthedDevice): Promise<Response> {
-  const rows = await db.select<RequirementRow>("denuvo_requirement", "select=url,file_type,zip_rar&order=id.asc");
+  // Bang nay KHONG co cot `id` -> khong order duoc theo id.
+  const rows = await db.select<RequirementRow>("denuvo_requirement", "select=url,file_type,zip_rar");
   return await sealed(auth, { ok: true, rows });
 }
 
