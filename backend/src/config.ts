@@ -72,7 +72,7 @@ export const cfg = {
   limits: {
     perDeviceHour: num("LIMIT_DEVICE_HOUR", 12),
     perDeviceDay: num("LIMIT_DEVICE_DAY", 40),
-    perDeviceAppid10m: num("LIMIT_DEVICE_APPID_10M", 4),
+    perDeviceAppid10m: num("LIMIT_DEVICE_APPID_10M", 10),
     accountCooldownSec: num("ACCOUNT_COOLDOWN_SEC", 90),
     accountFailBlock: num("ACCOUNT_FAIL_BLOCK", 5),
     enrollPerIpHour: num("LIMIT_ENROLL_IP_HOUR", 6),

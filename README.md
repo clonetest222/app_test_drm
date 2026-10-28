@@ -1,7 +1,7 @@
 # G4play Denuvo Manage
 
 Quét thư viện Steam để phát hiện game Denuvo, và fix bằng cách lấy *ownership ticket* từ tài
-khoản thật rồi ghi vào `g4_tool.lua`.
+khoản thật rồi ghi vào `config\lua\denuvo_g4play.lua`.
 
 Gồm 2 phần:
 
@@ -86,19 +86,24 @@ Làm ngược lại thì backend bị khoá cùng `anon`. Bước 3 là để ch
 ## Hành vi đáng chú ý
 
 1. **Đọc `.lua` ở CẢ hai thư mục**: `<Steam>\config\stplug-in` **và** `<Steam>\config\lua`.
-   Tab Cài đặt hiện thư mục nào đang được đọc. Khi ghi ticket, app chọn thư mục **đang chứa
-   chính appid đó**; không có thì chọn thư mục đang có `g4_tool.lua`; không nữa thì mặc định
-   `config\stplug-in`.
+   Tab Cài đặt hiện thư mục nào đang được đọc.
+   **Ghi ticket** thì luôn vào một file cố định: `<Steam>\config\lua\denuvo_g4play.lua`
+   (tự tạo `config\lua` nếu chưa có). File này chỉ chứa ticket, tách hẳn khỏi file lua của game.
+   Ticket cũ mà bản trước ghi lẫn trong `g4_tool.lua` sẽ bị dọn khi fix lại game đó.
 2. **Bảng cập nhật riêng**: `denuvo_releases` / `denuvo_renderer` — app đọc qua backend
    (`/v1/update/release`, `/v1/update/renderer`), không đọc thẳng Supabase nữa.
    Backend **không ghi gì** vào Supabase — chỉ SELECT.
+   > ⚠️ Hai bảng này **phải tạo trước** thì tính năng cập nhật mới chạy — chạy
+   > [`denuvo_tables.sql`](denuvo_tables.sql) trong Supabase SQL Editor. Chưa tạo thì
+   > backend trả `found:false` và app im lặng coi như "đã là bản mới nhất"
+   > (không lỗi, nhưng cũng không bao giờ báo bản mới).
 3. **Tab Denuvo là tab mặc định** — mở app là quét luôn + chuẩn bị công cụ fix.
 4. **Nâng cấp tại chỗ**: `appId` giữ nguyên `com.g4market.denuvo` nên installer mới đè lên bản
    `G4 Denuvo Tool` đã cài, không tạo 2 app song song. `installer.nsh` đóng cả tên cũ lẫn tên mới.
 
 ## ⚠️ Điều kiện để fix Denuvo có tác dụng
 
-Ticket ghi vào `g4_tool.lua` chỉ có tác dụng khi máy **đã có sẵn file share**
+Ticket ghi vào `config\lua\denuvo_g4play.lua` chỉ có tác dụng khi máy **đã có sẵn file share**
 (`xinput1_4.dll` cạnh `steam.exe`). App này **không tự cài** file đó.
 
 ## Dùng chung với g4_tool

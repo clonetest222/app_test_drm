@@ -2,7 +2,7 @@
   "name": "g4play-denuvo-manage",
   "productName": "G4play Denuvo Manage",
   "version": "1.1.0",
-  "description": "G4play Denuvo Manage - quet & fix Denuvo, credential di qua backend Deno",
+  "description": "G4play Denuvo Manage - quet & fix Denuvo, doc thang Supabase, auto-update qua GitHub Releases",
   "main": "main.js",
   "scripts": {
     "start": "electron .",

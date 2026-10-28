@@ -5,7 +5,8 @@
 > là tab mặc định (mở app là quét luôn). Xem [README.md](../README.md).
 
 Quét thư viện để phát hiện game có **Denuvo / DRM bên thứ ba**, và **fix** game Denuvo bằng cách
-lấy *ownership ticket* từ một tài khoản Steam thật (sở hữu game) rồi ghi vào **`g4_tool.lua`**.
+lấy *ownership ticket* từ một tài khoản Steam thật (sở hữu game) rồi ghi vào
+**`<Steam>\config\lua\denuvo_g4play.lua`**.
 
 Vào bằng **tab "Denuvo"** (`data-tab="denuvo"`). Khi mở tab, `renderer.js: loadDenuvo()` chạy
 `runDenuvoScan()` + `prepareDenuvoTool()`. Toàn bộ logic nặng chạy ở **main.js (Node)** — renderer
@@ -16,9 +17,21 @@ bị CSP/CORS chặn nên không tự gọi store/Supabase được. Log stream 
 Luồng trong `renderer.js: runDenuvoScan()`:
 
 1. `window.denuvo.installed()` → gom appid từ **MỌI file `.lua`** trong **cả hai** thư mục
-   `config/stplug-in` **và** `config/lua` nếu có (`main.js: denuvoInstalledAppids` + `luaDirs`),
-   **loại trừ `nomore.lua`** (file cũ chỉ chứa ticket, không có `addappid`). Chỉ lấy dòng
-   `addappid` **đầu mỗi block** = game chính, nên DLC/depot bị bỏ ngay từ bước này.
+   `config/stplug-in` **và** `config/lua` (`main.js: denuvoInstalledAppids` + `luaDirs`) —
+   **không loại trừ file nào**, vì file nào cũng có thể là game do tool khác cài. File chỉ
+   chứa ticket (`denuvo_g4play.lua`, `nomore.lua` đời cũ) không có dòng `addappid` nên tự
+   nhiên không đóng góp gì, khỏi cần loại theo tên.
+
+   Cách đọc tuỳ file có chia block hay không:
+   - **Có block** (dòng chỉ có `--` ngăn cách) — định dạng do g4_tool/nomore ghi ra: mỗi block
+     = 1 game + depot/DLC của nó, chỉ lấy dòng `addappid` **đầu block** → bỏ hết depot/DLC ngay
+     từ bước này, tiết kiệm rất nhiều request.
+   - **Không chia block** — file của tool khác: không biết dòng nào là game, **lấy hết** rồi để
+     `denuvoGamesOnly()` lọc. Trước đây chỉ lấy dòng đầu tiên của cả file nên file liệt kê
+     nhiều game chỉ thấy được 1.
+
+   > Đo thật trên máy có 5 file `.lua`: 38 → **56 appid** (thêm 18, không mất cái nào), sau khi
+   > lọc DLC còn **20 game chính** (9s), quét Denuvo xong trong 21s.
 2. `window.denuvo.gamesOnly(appids)` → **lọc chỉ game chính** (`main.js: denuvoGamesOnly`):
    - Dùng `appdetails?filters=basic`: `type=game` → mảng **`dlc[]`** liệt kê DLC con → loại hết.
      Nếu là DLC → lấy game gốc (`fullgame`) để loại sibling.
@@ -54,13 +67,26 @@ Luồng trong `renderer.js: runDenuvoScan()`:
    `POST /v1/denuvo/ticket` (đã ký HMAC). Backend trả **đúng 1 account** trong phong bì
    AES-256-GCM riêng cho request đó. App **không** còn đọc bảng `denuvo_accounts`, và mật khẩu
    không hiện ra ở dạng đọc được trên đường truyền (xem [security.md](security.md)).
-3. **Vòng lặp tối đa 6 lượt**, mỗi lượt xin 1 account mới (gửi kèm `exclude` = các
+3. **Vòng lặp tối đa 10 lượt**, mỗi lượt xin 1 account mới (gửi kèm `exclude` = các
    `account_id` đã hỏng để backend không cấp lại), đến khi lấy được ticket:
    - `dvSteamLoginHidden(user, pass)`:
-     - **Đóng hẳn Steam** (`-shutdown`, chờ `steam.exe` thoát, không thì `taskkill /F`).
-       *Bắt buộc — Steam còn chạy thì `-login` bị bỏ qua.*
-     - `steam.exe -silent -login <user> <pass>` (**không** ghi registry — code hiện tại đọc
+     - **Đóng hẳn Steam** — `dvSteamShutdownWait()`: Steam không chạy thì bỏ qua luôn (chạy
+       `steam.exe -shutdown` lúc Steam đang tắt sẽ *khởi động* nó lên); đang chạy thì xin thoát
+       tử tế, chờ tối đa 25s, cứng đầu thì `taskkill /F`, rồi **kiểm tra lại**.
+       *Bắt buộc — Steam còn chạy thì `-login` bị bỏ qua và Steam giữ nguyên tài khoản cũ.*
+       Đóng không được → **dừng ngay**, không đăng nhập (nếu không sẽ chạy tiếp dưới tài khoản
+       của chính người dùng rồi báo "không lấy được ticket", rất khó đoán nguyên nhân).
+     - `steam.exe -silent -login <user> <pass>` (**không** ghi registry — đọc
        `logs/connection_log.txt` để biết login xong chưa, chạy được cả khi máy chưa từng login).
+     - Kết quả đọc bằng `dvNewLoginWatcher()` (port từ `g4play-client`
+       `initiator/util.go: steamLoginWatcher`): watcher **chốt vị trí cuối file ngay trước khi
+       chạy `-login`** rồi mỗi giây chỉ đọc phần mới ghi thêm.
+       - Rẻ hơn hẳn đọc lại cả file mỗi giây (log máy dùng lâu nặng vài MB × 120 lần/lần fix).
+       - Quan trọng hơn: **kết quả của lượt trước không lọt sang lượt sau**. Mốc so sánh phải
+         lùi 2s (log chỉ có độ phân giải giây), mà hai lượt liên tiếp có khi cách nhau <2s →
+         cách đọc cũ có thể bắt nhầm dòng `InvalidPassword` của account trước rồi báo hỏng oan
+         cho account sau.
+       - Xử lý cả dòng đọc dở (ghi nửa chừng) và log bị xoay vòng (file ngắn lại → đọc lại từ đầu).
      - ⚠️ Mật khẩu nằm trên **command line** của `steam.exe` → tiến trình khác trên cùng máy đọc
        được. Steam bắt buộc như vậy; xem [security.md](security.md) §3.
    - `dvRunExtractTickets(exe, appid)` (ẩn, `windowsHide`, tự gửi Enter cho "Press Enter to exit").
@@ -70,6 +96,12 @@ Luồng trong `renderer.js: runDenuvoScan()`:
 4. Sau mỗi account (được hay lỗi) đều **đăng xuất** (`dvSteamLogout`, đóng hẳn Steam) **và
    báo kết quả về backend** (`POST /v1/denuvo/ticket/result`) → account login lỗi 5 lần liên
    tiếp tự bị `status='blocked'`, và audit log biết máy nào đã lấy credential nào.
+   - `dvSteamLogout` báo **đúng sự thật**: Steam không tắt được thì log
+     *"CẢNH BÁO: không đóng được Steam — tài khoản có thể vẫn đang đăng nhập"* và trả `ok:false`,
+     thay vì in "Đã đăng xuất" bất kể kết quả như bản trước.
+   - Khi đã thử vài account rồi mới hết account, thông báo lỗi cuối cùng **giữ lý do thật**
+     (`sai mật khẩu`, `tài khoản đang đăng nhập nơi khác`…) chứ không bị ghi đè thành
+     *"chưa có tài khoản khả dụng"* — nếu không người dùng tưởng game chưa có account nào.
 5. Mọi dòng log trong vòng lặp đi qua `dvScrubLog()` — mật khẩu bị thay bằng `***` trước khi
    ra terminal trong app.
 6. Nếu backend trả `mode:"ticket"` (backend tự lấy ticket, giai đoạn 2) thì app ghi thẳng file,
@@ -77,18 +109,27 @@ Luồng trong `renderer.js: runDenuvoScan()`:
 
 ### 2c. Ghi kết quả — `dvWriteTicketFiles()`
 - `tickets.txt` (trong `temp`, tạm — bị xóa ngay ở bước 2d).
-- **`g4_tool.lua`** — chọn thư mục bằng `dvTicketLuaPath()`: ưu tiên thư mục (`config\stplug-in`
-  hoặc `config\lua`) **đang chứa chính appid đó**, rồi tới thư mục đang có `g4_tool.lua`, cuối cùng
-  mặc định `config\stplug-in`. Ghi theo **block** (ngăn cách
-  `\r\n--\r\n`, cùng định dạng với block game share), ghi đè block ticket cũ cùng appid:
+- **`denuvo_g4play.lua` ghi vào CẢ HAI thư mục** (`dvTicketLuaPaths`) —
+  `<Steam>\config\stplug-in\` **và** `<Steam>\config\lua\`. Không biết loader trên máy người
+  dùng đọc thư mục nào, ghi một chỗ là có thể ticket nằm sai chỗ và game vẫn báo thiếu bản quyền.
+  Thư mục chưa có thì tự tạo; một thư mục ghi hỏng (mất quyền…) thì vẫn ghi nốt thư mục kia,
+  chỉ báo thất bại khi **cả hai** đều hỏng.
+  > Hai file **giống hệt nhau**, cùng `created=` nên `readDenuvoEntries()` gộp trùng theo
+  > `appid:created` — không bị đếm thành 2 ticket, popup không hiện 2 lần.
+
+  File **riêng cho ticket**, cố định, không phụ thuộc game nằm ở thư mục nào.
+  Ghi theo **block** (ngăn cách `\r\n--\r\n`), ghi đè block ticket cũ cùng appid:
   ```lua
   --denuvo appid={appid} created={ms} createdAt="{yyyy-mm-dd hh:mm:ss}" name={tên}
   setAppTicket({appid}, "{hex}")
   setETicket({appid}, "{hex}")
   ```
-  > Ticket dùng **chung file** `g4_tool.lua` với block game (khác app active_app dùng `nomore.lua`).
   > Block ticket không có `addappid` nên không bị tính là game khi liệt kê thư viện.
   > `created=<ms>` để tính hết hạn.
+- **Dọn bản cũ** (`dvPurgeOldTicketBlocks`): bản trước ghi ticket lẫn vào `g4_tool.lua`.
+  Trước khi ghi ticket mới, mọi block `--denuvo appid=<appid>` còn sót trong `g4_tool.lua`
+  (ở cả `stplug-in` lẫn `lua`) bị xoá — tránh 2 ticket cho cùng 1 game, trong đó bản cũ đã
+  hết hạn. Chỉ đụng block `--denuvo`, block game giữ nguyên; file nào chỉ còn ticket thì xoá luôn.
 
 ### 2d. Dọn dẹp — `dvCleanupExtracted()` (âm thầm, không log)
 - Xóa `temp/tickets.txt` (đã ghi vào lua rồi).
@@ -101,8 +142,8 @@ Thay cho cửa sổ cmd: log toàn luồng stream về renderer qua kênh **`den
 
 ## 3. Hết hạn 30 phút + popup
 - Mỗi ticket chỉ hiệu lực **30 phút** (`DENUVO_TTL_MS`).
-- `window.denuvo.expiry()` → `readDenuvoEntries()` đọc `g4_tool.lua` ở **cả 2 thư mục** (`stplug-in`
-  + `lua`, gộp trùng theo `appid:created`), so `now - created > 30 phút`
+- `window.denuvo.expiry()` → `readDenuvoEntries()` đọc `denuvo_g4play.lua` **và** `g4_tool.lua`
+  (file của bản cũ) ở cả 2 thư mục, gộp trùng theo `appid:created`, so `now - created > 30 phút`
   (dựa giờ tạo nên tắt/mở lại app vẫn biết).
 - Renderer kiểm tra lúc mở app + mỗi 60s → game hết hạn hiện **popup góc phải**:
   *"Denuvo của {tên game} đã hết hiệu lực, vui lòng add lại."* (click → mở tab Denuvo).
@@ -115,7 +156,7 @@ Thay cho cửa sổ cmd: log toàn luồng stream về renderer qua kênh **`den
 | `installed()` | `denuvo-installed` | gom appid từ mọi file `.lua` ở `stplug-in` + `lua` (trừ `nomore.lua`) |
 | `gamesOnly(appids)` | `denuvo-games-only` | lọc DLC → chỉ game chính (qua appdetails) |
 | `prepare()` | `denuvo-prepare` | tải + giải nén công cụ fix vào `temp` |
-| `run(appid, name)` | `denuvo-run` | xin credential từ backend → login → lấy ticket → ghi `g4_tool.lua` |
+| `run(appid, name)` | `denuvo-run` | xin credential từ backend → login → lấy ticket → ghi `denuvo_g4play.lua` |
 | `expiry()` | `denuvo-expiry` | danh sách ticket + còn hạn/hết hạn |
 | `onLog(cb)` | on `denuvo-log` | nhận từng dòng log (terminal trong app) |
 
@@ -140,8 +181,8 @@ và bảng "Dữ liệu nằm ở đâu" trong [backend/README.md](../backend/RE
 - ⚠️ Switch account sẽ **đăng xuất account Steam hiện tại** của người dùng (không tự đăng nhập lại
   account gốc vì không có mật khẩu).
 - ⚠️ Giải nén `.rar` cần 7-Zip/WinRAR trên máy.
-- Ticket ghi vào `g4_tool.lua`: khi **xóa game** trong tab Thư viện, block ticket (không có
-  `addappid`) **không** bị xóa theo — nếu cần dọn ticket khi xóa game thì phải bổ sung riêng.
+- Ticket nằm ở file riêng `denuvo_g4play.lua` nên xoá game (bên app g4_tool) không đụng tới
+  ticket, và ngược lại. Ticket hết hạn không tự bị xoá khỏi file — bị ghi đè khi fix lại.
 
 ## 7. Hiệu năng
 - Đọc registry/process bằng **`reg.exe` / `tasklist` async** (`execFile`), KHÔNG `execSync` → không

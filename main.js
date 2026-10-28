@@ -45,6 +45,65 @@ function api() {
   return _api;
 }
 
+// ============================================================================
+//  SUPABASE TRUC TIEP (nhu g4_tool) — duong ra khi backend Deno chet (503).
+//  Backend Deno ban 1.1.0 bi treo khi het quota -> moi thao tac Denuvo 503.
+//  App doc thang Supabase bang PUBLISHABLE key: chi la key cong khai (RLS moi
+//  la lop bao ve that), nen giau trong .env chi de chong grep, khong phai ma hoa.
+//
+//  Key trong .env la chuoi DA XAO. moKhoa() khoi phuc key that luc chay. Xao bang
+//  hoan vi Fisher-Yates CO SEED CO DINH -> giau()/moKhoa() dao nguoc duoc nhau
+//  (Math.random() thi KHONG dao nguoc duoc, nen phai dung PRNG co seed).
+// ============================================================================
+function _rng(seed) {                      // mulberry32 — PRNG deterministic
+  let a = seed >>> 0;
+  return () => {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function _perm(n, seed) {                   // hoan vi [0..n) theo Fisher-Yates co seed
+  const p = Array.from({ length: n }, (_, i) => i);
+  const rnd = _rng(seed);
+  for (let i = n - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+  return p;
+}
+const _KEY_SEED = 0x9e3779b1;               // seed co dinh — cong cu giau va app phai trung
+function giau(s) {                          // GOC -> xao (chay 1 lan de tao chuoi bo vao .env)
+  s = String(s); const p = _perm(s.length, _KEY_SEED); const o = new Array(s.length);
+  for (let i = 0; i < s.length; i++) o[p[i]] = s[i];
+  return o.join("");
+}
+function moKhoa(s) {                         // xao -> GOC (app chay luc khoi dong)
+  s = String(s); const p = _perm(s.length, _KEY_SEED); const o = new Array(s.length);
+  for (let i = 0; i < s.length; i++) o[i] = s[p[i]];
+  return o.join("");
+}
+
+// SUPABASE_URL de thuong; SUPABASE_PUBLISHABLE_KEY_SCRAMBLED la key DA XAO -> moKhoa().
+const SUPA_URL = (ENV.SUPABASE_URL || "").replace(/\/+$/, "");
+const SUPA_KEY = ENV.SUPABASE_PUBLISHABLE_KEY_SCRAMBLED
+  ? moKhoa(ENV.SUPABASE_PUBLISHABLE_KEY_SCRAMBLED)
+  : (ENV.SUPABASE_PUBLISHABLE_KEY || "");   // du phong neu ai do dien key chua xao
+
+// ---- Supabase REST (select) — doc thang bang URL/KEY trong .env (giong g4_tool) ----
+function sbSelect(table, query) {
+  return new Promise((resolve) => {
+    if (!SUPA_URL || !SUPA_KEY) { resolve({ error: "Chua cau hinh Supabase (.env)" }); return; }
+    const url = `${SUPA_URL}/rest/v1/${table}?${query}`;
+    const req = https.get(url, { headers: { apikey: SUPA_KEY, Authorization: "Bearer " + SUPA_KEY } },
+      (res) => {
+        let b = ""; res.setEncoding("utf8");
+        res.on("data", (c) => (b += c));
+        res.on("end", () => { try { resolve(JSON.parse(b)); } catch (e) { resolve({ error: "JSON loi", raw: b }); } });
+      });
+    req.on("error", (e) => resolve({ error: String(e) }));
+    req.setTimeout(15000, () => { req.destroy(); resolve({ error: "timeout" }); });
+  });
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Cau hinh luu tren may (userData\g4_config.json) — vd thu muc Steam set thu cong.
@@ -106,6 +165,14 @@ ipcMain.handle("steam-dir-set-manual", async () => {
 const LUA_SUBDIRS = [["config", "stplug-in"], ["config", "lua"]];
 function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch (_) { return false; } }
 
+// Ticket Denuvo ghi RIENG ra file denuvo_g4play.lua — khong tron vao file lua cua
+// game nua. File nay chi chua block setAppTicket/setETicket (khong co addappid) nen
+// khong bao gio bi tinh la game khi quet thu vien.
+// Ghi vao CA HAI thu muc trong LUA_SUBDIRS (stplug-in + lua) — xem dvTicketLuaPaths().
+const TICKET_FILE = "denuvo_g4play.lua";
+// Cac file ticket cua ban CU — van doc de biet han, va don khi ghi de ticket moi.
+const OLD_TICKET_FILES = ["g4_tool.lua"];
+
 // Thu muc GHI mac dinh (stplug-in) — dung khi chua xac dinh duoc game nam o dau.
 function luaDir() {
   const sd = getSteamDir();
@@ -139,13 +206,26 @@ function verGt(a, b) {
   return false;
 }
 
+// Auto-update doc THANG GitHub Releases cua repo phat hanh (repo public -> khong can
+// token). Phat ban moi = tao 1 Release tag version cao hon, dinh kem file *-Setup-*.exe.
+// GitHub API bat buoc co User-Agent. Doi repo -> sua GH_RELEASE_REPO trong .env.
+const GH_RELEASE_REPO = ENV.GH_RELEASE_REPO || "clonetest222/app_test_drm";
+
 ipcMain.handle("check-update", async () => {
   const current = app.getVersion();
-  if (!API_BASE) return { update: false, current };
+  if (!GH_RELEASE_REPO) return { update: false, current };
   try {
-    const rel = await api().update("release");
-    if (!rel || !rel.version) return { update: false, current };
-    return { update: verGt(rel.version, current), version: rel.version, url: rel.url, notes: rel.notes, current };
+    const r = await fetch(`https://api.github.com/repos/${GH_RELEASE_REPO}/releases/latest`,
+      { headers: { "User-Agent": "g4-denuvo", Accept: "application/vnd.github+json" } });
+    if (!r.ok) return { update: false, current };   // 404 = chua co release -> coi nhu dang la ban moi nhat
+    const rel = await r.json();
+    const version = String(rel.tag_name || "").replace(/^v/i, "");   // "v1.1.2" -> "1.1.2"
+    if (!version) return { update: false, current };
+    // Lay asset installer (.exe), bo qua .blockmap / .yml.
+    const asset = (rel.assets || []).find((a) => /\.exe$/i.test(a.name || ""));
+    const url = asset && asset.browser_download_url;
+    if (!url) return { update: false, current };
+    return { update: verGt(version, current), version, url, notes: rel.body || "", current };
   } catch (_) { return { update: false, current }; }
 });
 
@@ -475,23 +555,36 @@ async function denuvoGamesOnly(appids) {
 }
 ipcMain.handle("denuvo-games-only", (_e, appids) => denuvoGamesOnly(Array.isArray(appids) ? appids : []));
 
-// Lay appid GAME CHINH tu MOI file .lua trong config\stplug-in. Moi file co the chia
-// thanh nhieu block (phan tach bang dong chi co "--"); MOI block = 1 game + depot/DLC
-// cua no, va dong addappid DAU TIEN cua block = game chinh. Chi lay dong dau moi block
-// -> bo qua het depot/DLC -> it appid -> it request hon HAN (vd 18 appid -> 3 game).
-// (nomore.lua la file ghi ticket cua chinh app, khong co addappid nen tu loai.)
+// Lay appid GAME CHINH tu MOI file .lua trong CA HAI thu muc config\stplug-in va
+// config\lua — khong loai tru file nao, vi file nao cung co the la game do tool khac cai.
+// (File chi chua ticket nhu denuvo_g4play.lua / nomore.lua doi cu khong co dong addappid
+//  nen tu nhien khong dong gop gi, khong can loai bang ten.)
+//
+// Cach doc phu thuoc file co chia block hay khong:
+//   * CO block (cac dong chi co "--" ngan cach): moi block = 1 game + depot/DLC cua no,
+//     dong addappid DAU block la game chinh -> chi lay dong dau -> bo qua het depot/DLC.
+//     Day la dinh dang do g4_tool / nomore ghi ra.
+//   * KHONG chia block (file cua tool khac): khong biet dong nao la game, lay HET roi
+//     de denuvoGamesOnly() loc DLC/depot. Truoc day chi lay dong dau tien cua ca file,
+//     nen file liet ke nhieu game thi chi thay duoc 1 game.
 function denuvoInstalledAppids() {
   const seen = new Set(), out = [];
+  const push = (id) => { if (id && !seen.has(id)) { seen.add(id); out.push(id); } };
   for (const dir of luaDirs()) {         // ca config\stplug-in lan config\lua
     let files = [];
-    try { files = fs.readdirSync(dir).filter((f) => /\.lua$/i.test(f) && !/^nomore\.lua$/i.test(f)); }
+    try { files = fs.readdirSync(dir).filter((f) => /\.lua$/i.test(f)); }
     catch (_) { continue; }
     for (const f of files) {
       let txt = "";
       try { txt = fs.readFileSync(path.join(dir, f), "utf8"); } catch (_) { continue; }
-      for (const block of txt.split(/\r?\n\s*--\s*\r?\n/)) {
-        const m = block.match(/addappid\s*\(\s*(\d+)/i);   // addappid dau block = game chinh
-        if (m && !seen.has(m[1])) { seen.add(m[1]); out.push(m[1]); }
+      const blocks = txt.split(/\r?\n\s*--\s*\r?\n/);
+      if (blocks.length > 1) {
+        for (const block of blocks) {
+          const m = block.match(/addappid\s*\(\s*(\d+)/i);   // addappid dau block = game chinh
+          if (m) push(m[1]);
+        }
+      } else {
+        for (const m of txt.matchAll(/addappid\s*\(\s*(\d+)/gi)) push(m[1]);
       }
     }
   }
@@ -656,14 +749,34 @@ function dvSteamRunning() {
       (err, out) => resolve(/steam\.exe/i.test(out || "")));
   });
 }
-async function dvSteamShutdownWait(steamExe, log, maxMs = 25000) {
+
+// ---- Moc thoi gian cua luong dang nhap / dang xuat ----
+const DV_LOGIN_POLL_MS = 1000;         // nhip doc connection_log
+const DV_LOGIN_TIMEOUT_MS = 120000;    // toi da 2 phut cho 1 lan dang nhap
+const DV_SHUTDOWN_GRACE_MS = 25000;    // cho Steam tu thoat truoc khi buoc dong (luc login)
+const DV_LOGOUT_GRACE_MS = 15000;      // nhu tren, luc dang xuat
+// connection_log.txt chi ghi thoi gian den GIAY: dong ghi ngay sau khi bam login co the
+// mang moc lam tron xuong truoc do mot chut, lui moc so sanh lai de khong bo sot.
+// An toan vi watcher chot vi tri cuoi file luc tao -> khong the doc trung dong cu.
+const DV_LOG_SKEW_MS = 2000;
+// Dong han Steam: xin thoat tu te (-shutdown) truoc, het kien nhan moi buoc dong.
+// Tra ve { ok, forced, skipped }:
+//   ok=false  -> Steam VAN dang chay (nguoi goi phai coi la that bai, khong duoc di tiep)
+//   skipped   -> Steam von khong chay, khong lam gi ca
+// Fast-path "khong chay" quan trong: `steam.exe -shutdown` khi Steam dang tat se
+// KHOI DONG Steam len roi moi tat, ton them vai giay moi vong lap fix.
+async function dvSteamShutdownWait(steamExe, log, maxMs = DV_SHUTDOWN_GRACE_MS) {
+  if (!(await dvSteamRunning())) return { ok: true, forced: false, skipped: true };
   try { execFile(steamExe, ["-shutdown"], { windowsHide: true }); } catch (e) {}
   const n = Math.ceil(maxMs / 500);
-  for (let i = 0; i < n; i++) { if (!(await dvSteamRunning())) return true; await sleep(500); }
+  for (let i = 0; i < n; i++) {
+    if (!(await dvSteamRunning())) return { ok: true, forced: false, skipped: false };
+    await sleep(500);
+  }
   if (log) log("Steam khong tu thoat -> buoc dong...");
   try { execFile("taskkill", ["/IM", "steam.exe", "/F"], { windowsHide: true }); } catch (e) {}
   await sleep(1500);
-  return !(await dvSteamRunning());
+  return { ok: !(await dvSteamRunning()), forced: true, skipped: false };
 }
 // Thu muc + exe Steam: uu tien dvSteamPaths (registry), fallback getSteamDir (co backup thu cong).
 async function dvSteamDirExe() {
@@ -709,41 +822,88 @@ function dvParseLogonResult(line) {
   const q2 = rest.indexOf("'", q1 + 1); if (q2 < 0) return null;
   return rest.slice(q1 + 1, q2);
 }
-// Doc connection_log -> "ok" | { fail, reason } | "pending" (chi xet dong sau moc dang nhap).
-function dvCheckLoginLog(logPath, fromTime) {
-  let txt = "";
-  try { txt = fs.readFileSync(logPath, "utf8"); } catch (e) { return "pending"; }
+// Theo doi connection_log.txt cho DUNG MOT lan dang nhap (port tu g4play-client
+// initiator/util.go: steamLoginWatcher). Khac ban cu o cho: chi doc phan MOI duoc
+// ghi them ke tu luc tao watcher, thay vi doc lai ca file moi giay.
+//   1. Re hon han — log cua may dung lau nang vai MB, ban cu doc lai 120 lan/1 lan fix.
+//   2. QUAN TRONG: ket qua cua LAN DANG NHAP TRUOC khong the lot vao lan nay.
+//      Vong lap fix thu tai khoan noi tiep nhau, hai lan cach nhau co khi < 2s,
+//      ma moc thoi gian phai lui lai 2s (log chi co do phan giai giay) -> ban cu
+//      co the doc trung dong "InvalidPassword" cua tai khoan TRUOC roi bao hong
+//      oan cho tai khoan sau. Chot vi tri file luc bat dau thi khong con cua nao.
+// poll() -> "pending" | "ok" | { fail, reason }
+function dvNewLoginWatcher(logFile, fromTime) {
+  let offset = 0;
+  try { offset = fs.statSync(logFile).size; } catch (_) {}
+  let carry = "";        // dong cuoi doc dang do (chua co xuong dong) -> de danh lan sau
   let sawOK = false;
-  for (const line of txt.split(/\r?\n/)) {
+
+  const handleLine = (line) => {
     const ts = dvParseLogTs(line);
-    if (ts == null || ts < fromTime) continue;
+    if (ts == null || ts < fromTime) return "pending";
     if (line.includes("[Logged On,")) return "ok";
     const res = dvParseLogonResult(line);
-    if (res == null) continue;
-    if (res === "OK") sawOK = true;
-    else if (res === "processing complete") { if (sawOK) return "ok"; }
-    else return { fail: true, reason: DV_LOGON_FAILURES[res] || res };
-  }
-  return "pending";
+    if (res == null) return "pending";
+    if (res === "OK") { sawOK = true; return "pending"; }
+    if (res === "processing complete") return sawOK ? "ok" : "pending";
+    return { fail: true, reason: DV_LOGON_FAILURES[res] || res };
+  };
+
+  return function poll() {
+    let size;
+    try { size = fs.statSync(logFile).size; } catch (_) { return "pending"; }  // Steam chua tao log
+    if (size < offset) { offset = 0; carry = ""; sawOK = false; }   // log bi xoay vong -> doc lai tu dau
+    if (size === offset) return "pending";
+
+    let chunk = "", fd = null;
+    try {
+      fd = fs.openSync(logFile, "r");
+      const buf = Buffer.allocUnsafe(size - offset);
+      const n = fs.readSync(fd, buf, 0, buf.length, offset);
+      chunk = buf.subarray(0, n).toString("utf8");
+      offset += n;
+    } catch (_) { return "pending"; }
+    finally { if (fd !== null) { try { fs.closeSync(fd); } catch (_) {} } }
+
+    const lines = (carry + chunk).split(/\r?\n/);
+    carry = lines.pop();                       // phan chua tron dong -> giu lai
+    for (const line of lines) {
+      const r = handleLine(line);
+      if (r !== "pending") return r;           // gap ket qua dau tien la chot
+    }
+    return "pending";
+  };
 }
 
 async function dvSteamLoginHidden(user, pass, log) {
   const { dir, exe } = await dvSteamDirExe();
   if (!exe) return { ok: false, msg: "Khong tim thay steam.exe" };
-  // BAT BUOC dong han Steam cu truoc: neu con chay, -login se bam vao session cua acc cu.
+
+  // BAT BUOC dong han Steam cu truoc: neu con chay, -login bi bo qua va Steam giu
+  // nguyen session cua tai khoan cu. Truoc day ket qua dong Steam bi bo qua ->
+  // van chay tiep -> "dang nhap thanh cong" nhung thuc te la tai khoan cua NGUOI DUNG,
+  // roi extract_tickets bao khong co ticket, rat kho doan ra nguyen nhan.
   log("Dang dong Steam hien tai...");
-  await dvSteamShutdownWait(exe, log);
+  const stop = await dvSteamShutdownWait(exe, log);
+  if (!stop.ok) {
+    return { ok: false, msg: "Khong dong duoc Steam dang chay (dang nhap luc nay se bam nham tai khoan)" };
+  }
+
   const logPath = dir ? path.join(dir, "logs", "connection_log.txt") : null;
-  const fromTime = Date.now() - 2000;   // margin vi log chi co do phan giai giay
+  // Tao watcher TRUOC khi chay -login: no chot vi tri cuoi file ngay bay gio, nen
+  // moi dong Steam ghi them tu day tro di moi duoc tinh la ket qua cua lan nay.
+  const poll = logPath ? dvNewLoginWatcher(logPath, Date.now() - DV_LOG_SKEW_MS) : null;
+
   log("Dang dang nhap tai khoan...");
   // -login user pass (KHONG ghi registry). -silent de Steam thu vao tray (an).
   try { spawn(exe, ["-silent", "-login", user, pass], { windowsHide: true, detached: true, stdio: "ignore" }).unref(); }
   catch (e) { return { ok: false, msg: String(e) }; }
-  const deadline = Date.now() + 120000;   // cho toi 2 phut
+
+  const deadline = Date.now() + DV_LOGIN_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    await sleep(1000);
-    if (logPath) {
-      const r = dvCheckLoginLog(logPath, fromTime);
+    await sleep(DV_LOGIN_POLL_MS);
+    if (poll) {
+      const r = poll();
       if (r === "ok") { log("Steam da dang nhap."); return { ok: true }; }
       if (r && r.fail) { log("Login that bai: " + r.reason); return { ok: false, msg: r.reason }; }
     } else if (await dvSteamRunning()) {   // khong ro thu muc log -> fallback: coi nhu OK khi Steam chay
@@ -752,12 +912,18 @@ async function dvSteamLoginHidden(user, pass, log) {
   }
   return { ok: false, msg: "Het thoi gian cho Steam dang nhap (tai khoan co the can uy quyen may nay / Steam Guard)" };
 }
+
+// Dang xuat = dong han Steam. Bao dung su that: neu Steam khong chiu tat thi tai khoan
+// van dang dang nhap tren may, phai noi ra thay vi in "Da dang xuat" nhu ban cu.
 async function dvSteamLogout(log) {
   const { exe } = await dvSteamDirExe();
-  if (!exe) return;
+  if (!exe) return { ok: false, msg: "Khong tim thay steam.exe" };
   log("Dang dang xuat tai khoan...");
-  await dvSteamShutdownWait(exe, log, 15000);
-  log("Da dang xuat tai khoan.");
+  const r = await dvSteamShutdownWait(exe, log, DV_LOGOUT_GRACE_MS);
+  if (r.skipped) { log("Steam khong chay - khong can dang xuat."); return { ok: true }; }
+  if (r.ok) { log("Da dang xuat tai khoan." + (r.forced ? " (phai buoc dong)" : "")); return { ok: true }; }
+  log("CANH BAO: khong dong duoc Steam - tai khoan co the van dang dang nhap.");
+  return { ok: false, msg: "Steam van dang chay sau khi dang xuat" };
 }
 
 // ---- extract_tickets.exe ----
@@ -821,33 +987,51 @@ const DENUVO_TTL_MS = 30 * 60 * 1000;   // ticket Denuvo chi hieu luc 30 phut
 // Chon file g4_tool.lua de GHI ticket. Ticket chi co tac dung neu nam CUNG thu muc voi lua
 // cua game, ma may co the dung config\stplug-in HOAC config\lua -> uu tien:
 //   1. thu muc dang chua chinh appid nay,  2. thu muc dang co g4_tool.lua,  3. stplug-in.
-function dvTicketLuaPath(steamPath, appid) {
-  const all = LUA_SUBDIRS.map((p) => path.join(steamPath, ...p));
-  const exist = all.filter(isDir);
-  const hasAppid = exist.find((d) => {
-    const re = new RegExp("addappid\\s*\\(\\s*" + appid + "\\b", "i");
-    try {
-      return fs.readdirSync(d).some((f) => /\.lua$/i.test(f) &&
-        re.test(fs.readFileSync(path.join(d, f), "utf8")));
-    } catch (_) { return false; }
-  });
-  const hasTicketFile = exist.find((d) => fs.existsSync(path.join(d, "g4_tool.lua")));
-  const dir = hasAppid || hasTicketFile || all[0];
-  fs.mkdirSync(dir, { recursive: true });
-  return path.join(dir, "g4_tool.lua");
+// Duong dan file ticket o CA HAI thu muc lua (config\stplug-in va config\lua).
+// Ghi ca hai vi khong biet loader tren may nguoi dung doc thu muc nao — ghi mot
+// cho la co the ticket nam sai cho va game van bao thieu ban quyen.
+// Thu muc chua co thi tao; tao khong duoc thi bo qua thu muc do (van con cai kia).
+function dvTicketLuaPaths(steamPath) {
+  const out = [];
+  for (const sub of LUA_SUBDIRS) {
+    const dir = path.join(steamPath, ...sub);
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) { continue; }
+    out.push(path.join(dir, TICKET_FILE));
+  }
+  return out;
 }
 
-// Ghi tickets.txt (vao temp) + ticket vao g4_tool.lua (config\stplug-in hoac config\lua), 1 block / appid.
+// Ban truoc ghi ticket lan vao g4_tool.lua. Neu con block cu cua chinh appid nay o do
+// thi se co HAI ticket cho cung 1 game (ban cu da het han) -> don sach truoc khi ghi
+// ticket moi, o moi thu muc lua. Chi dong vao block "--denuvo ...", giu nguyen game.
+function dvPurgeOldTicketBlocks(steamPath, appid) {
+  const re = new RegExp(`^--\\s*denuvo\\s+appid=${appid}\\b`);
+  for (const dir of luaDirsIn(steamPath)) {
+    for (const name of OLD_TICKET_FILES) {
+      const p = path.join(dir, name);
+      if (!fs.existsSync(p)) continue;
+      const blocks = readLuaBlocks(p);
+      const kept = blocks.filter((b) => !re.test(b));
+      if (kept.length === blocks.length) continue;            // khong co gi de don
+      try {
+        if (kept.length) fs.writeFileSync(p, kept.join("\r\n--\r\n") + "\r\n", "utf8");
+        else fs.unlinkSync(p);                                // file chi co ticket -> bo luon
+      } catch (_) {}
+    }
+  }
+}
+
+// Ghi tickets.txt (vao temp) + ticket vao denuvo_g4play.lua o CA HAI thu muc lua,
+// 1 block / appid. Block giong het nhau o hai file (cung `created`) nen
+// readDenuvoEntries() gop trung theo "appid:created", khong dem thanh 2 ticket.
 function dvWriteTicketFiles(temp, steamPath, appid, name, appticket, eticket, log) {
   const txtPath = path.join(temp, "tickets.txt");
   fs.writeFileSync(txtPath,
     `appid: ${appid}\nappticket(184 bytes): ${appticket}\neticket(143 bytes): ${eticket}\n`, "utf8");
   log("Da luu ticket.");
   if (!steamPath) { log("Khong ro Steam -> bo qua ghi ticket."); return { txtPath }; }
-  const luaPath = dvTicketLuaPath(steamPath, appid);
-  // Giu cac block khac, bo block ticket cu cua chinh appid nay (neu co) -> ghi lai.
-  const blocks = readLuaBlocks(luaPath).filter(
-    (b) => !new RegExp(`^--\\s*denuvo\\s+appid=${appid}\\b`).test(b));
+  dvPurgeOldTicketBlocks(steamPath, appid);   // bo ticket cu con sot trong g4_tool.lua
+
   const ts = Date.now();
   let iso = ""; try { iso = new Date(ts).toLocaleString("sv-SE"); } catch (e) {}
   const safeName = String(name || "").replace(/[\r\n]+/g, " ").trim();
@@ -856,10 +1040,21 @@ function dvWriteTicketFiles(temp, steamPath, appid, name, appticket, eticket, lo
     `setAppTicket(${appid}, "${appticket}")`,
     `setETicket(${appid}, "${eticket}")`,
   ].join("\r\n");
-  blocks.push(block);
-  fs.writeFileSync(luaPath, blocks.join("\r\n--\r\n") + "\r\n", "utf8");
-  log("Da ghi ticket (het han sau 30 phut).");
-  return { txtPath, luaPath };
+  const stale = new RegExp(`^--\\s*denuvo\\s+appid=${appid}\\b`);
+
+  // Thu muc nao ghi hong (khong co quyen...) thi bo qua, van ghi not thu muc con lai.
+  const written = [];
+  for (const luaPath of dvTicketLuaPaths(steamPath)) {
+    try {
+      const blocks = readLuaBlocks(luaPath).filter((b) => !stale.test(b));   // bo ticket cu cung appid
+      blocks.push(block);
+      fs.writeFileSync(luaPath, blocks.join("\r\n--\r\n") + "\r\n", "utf8");
+      written.push(luaPath);
+    } catch (e) { log("Khong ghi duoc " + luaPath + ": " + ((e && e.message) || e)); }
+  }
+  if (!written.length) { log("KHONG ghi duoc ticket vao thu muc nao."); return { txtPath }; }
+  log(`Da ghi ticket vao ${written.length} thu muc lua (het han sau 30 phut).`);
+  return { txtPath, luaPath: written[0], luaPaths: written };
 }
 
 // Sau khi ghi xong lua: don thu muc "extracted", chi giu lai extract_tickets.exe
@@ -884,15 +1079,21 @@ async function readDenuvoEntries() {
   if (!steamPath) steamPath = getSteamDir();          // du phong: thu muc Steam set thu cong
   if (!steamPath) return [];
   const out = [], seen = new Set();
-  for (const dir of luaDirsIn(steamPath)) {           // ticket co the nam o stplug-in hoac lua
+  // File ticket hien tai (denuvo_g4play.lua) + file cua ban cu (g4_tool.lua) o moi
+  // thu muc lua -> may vua nang cap van con thay ticket cu cho toi luc no het han.
+  const files = [];
+  for (const dir of luaDirsIn(steamPath)) {
+    for (const name of [TICKET_FILE, ...OLD_TICKET_FILES]) files.push(path.join(dir, name));
+  }
+  for (const f of files) {
     let cur = "";
-    try { cur = fs.readFileSync(path.join(dir, "g4_tool.lua"), "utf8"); } catch (e) { continue; }
+    try { cur = fs.readFileSync(f, "utf8"); } catch (e) { continue; }
     const re = /--\s*denuvo\s+appid=(\d+)\s+created=(\d+)[^\r\n]*?\bname=([^\r\n]*)/gi;
     let m;
     while ((m = re.exec(cur))) {
       const created = parseInt(m[2], 10) || 0;
       const key = m[1] + ":" + created;
-      if (seen.has(key)) continue;                    // cung ticket o 2 thu muc -> chi tinh 1
+      if (seen.has(key)) continue;                    // cung ticket o 2 file -> chi tinh 1
       seen.add(key);
       const age = Date.now() - created;
       out.push({
@@ -911,16 +1112,10 @@ async function denuvoPrepare(log) {
   const temp = denuvoTempDir();
   fs.mkdirSync(temp, { recursive: true });
   if (dvFindExtractTickets(temp)) { log("Cong cu fix da san sang."); return true; }
-  if (!API_BASE) { log("Chua cau hinh G4_API_BASE trong .env."); return false; }
-  let rows = [];
-  try {
-    const res = await api().denuvoRequirement();     // qua backend, khong doc thang Supabase
-    rows = (res && res.rows) || [];
-  } catch (e) {
-    log("Khong lay duoc cau hinh fix: " + ((e && e.message) || e));
-    return false;
-  }
-  if (!rows.length) { log("Khong lay duoc cau hinh fix."); return false; }
+  if (!SUPA_URL || !SUPA_KEY) { log("Chua cau hinh Supabase trong .env."); return false; }
+  const rows = await sbSelect("denuvo_requirement", "select=*");   // doc thang Supabase (nhu g4_tool)
+  if (rows && rows.error) { log("Khong lay duoc cau hinh fix: " + rows.error); return false; }
+  if (!Array.isArray(rows) || !rows.length) { log("Khong lay duoc cau hinh fix."); return false; }
   log("Dang tai cong cu fix...");
   for (const r of rows) {
     const ext = r.file_type === "rar" ? ".rar" : (r.file_type === "zip" ? ".zip" : ".bin");
@@ -963,72 +1158,38 @@ async function denuvoRun(appid, name, log) {
   if (!exe) { log("Chua co cong cu -> chuan bi..."); if (!(await denuvoPrepare(log))) return { ok: false, msg: "khong chuan bi duoc cong cu" }; exe = dvFindExtractTickets(temp); }
   if (!exe) return { ok: false, msg: "khong co extract_tickets.exe" };
 
-  if (!API_BASE) {
-    log("Chua cau hinh G4_API_BASE trong .env — app khong biet goi backend nao.");
-    return { ok: false, msg: "chua cau hinh backend" };
+  if (!SUPA_URL || !SUPA_KEY) {
+    log("Chua cau hinh Supabase trong .env — app khong biet doc nguon nao.");
+    return { ok: false, msg: "chua cau hinh Supabase" };
   }
 
-  log("Dang xin quyen truy cap tai khoan cho appid " + appid + "...");
+  log("Tra tai khoan cho appid " + appid + "...");
+  // Doc thang Supabase (nhu g4_tool): lay het account available cho appid nay.
+  const accs = await sbSelect("denuvo_accounts",
+    `select=*&appid=eq.${appid}&status=eq.available&order=id.asc`);
+  if (accs && accs.error) { log("Loi doc denuvo_accounts: " + accs.error); return { ok: false, msg: "loi account" }; }
+  if (!Array.isArray(accs) || !accs.length) { log("Khong co tai khoan available cho game nay (kiem tra RLS denuvo_accounts?)."); return { ok: false, msg: "khong co tai khoan" }; }
+  log("Dang thuc hien thao tac Denuvo...");
 
-  // Backend cap TUNG tai khoan mot (khong con dump ca bang xuong may). Moi vong:
-  //   xin lease -> login -> lay ticket -> bao ket qua ve backend.
-  // `tried` gui len de backend khong cap lai account vua hong.
-  const tried = [];
+  // Xao tron ngau nhien (Fisher-Yates) -> moi lan bat dau bang 1 account ngau nhien,
+  // khong luon dung account id nho nhat. Van thu lan luot het den khi lay duoc ticket.
+  for (let i = accs.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [accs[i], accs[j]] = [accs[j], accs[i]];
+  }
+
   let lastMsg = "";
-  const MAX_ROUNDS = 6;
-
-  for (let round = 0; round < MAX_ROUNDS; round++) {
-    let lease = null;
-    try {
-      lease = await api().denuvoTicket(appid, tried);
-    } catch (e) {
-      const code = e && e.code;
-      if (code === "no_account") {
-        log(tried.length ? "Da thu het tai khoan kha dung cho game nay." : "Chua co tai khoan kha dung cho game nay.");
-      } else if (code === "rate_appid" || code === "rate_hour" || code === "rate_day") {
-        log("Bi gioi han: " + e.message);
-      } else if (code === "device_revoked") {
-        log("May nay da bi khoa: " + e.message);
-      } else {
-        log("Khong xin duoc tai khoan: " + ((e && e.message) || e));
-      }
-      lastMsg = (e && e.message) || String(e);
-      break;
-    }
-
-    // Giai doan 2 (backend tu lay ticket): app KHONG bao gio thay mat khau.
-    // Protocol da san sang, bat len chi can doi backend, khong phai cap nhat app.
-    if (lease && lease.mode === "ticket" && lease.appticket && lease.eticket) {
-      log("Backend tra ticket san — khong can dang nhap Steam tren may nay.");
-      const { steamPath } = await dvSteamPaths();
-      const w = dvWriteTicketFiles(temp, steamPath, appid, name, lease.appticket, lease.eticket, log);
-      dvCleanupExtracted(temp);
-      log("HOAN TAT.");
-      return { ok: true, appid, account: "server", appticket: lease.appticket, eticket: lease.eticket, ...w };
-    }
-
-    if (!lease || lease.mode !== "lease" || !lease.username || !lease.password) {
-      lastMsg = "phan hoi backend khong hop le";
-      log("Phan hoi tu backend khong hop le.");
-      break;
-    }
-
-    tried.push(lease.account_id);
+  for (let i = 0; i < accs.length; i++) {
+    const acc = accs[i];
 
     // Lop chan cuoi: neu mat khau lo vao bat ky dong log nao (loi Steam echo lai,
     // duong dan, stderr...) thi no bi thay bang *** truoc khi den terminal/renderer.
-    const safeLog = dvScrubLog(log, [lease.password]);
+    const safeLog = dvScrubLog(log, [acc.password]);
 
-    const li = await dvSteamLoginHidden(lease.username, lease.password, safeLog);
-    if (!li.ok) {
-      safeLog("Login that bai: " + li.msg + " -> thu tai khoan khac");
-      lastMsg = li.msg;
-      await api().denuvoResult(lease.account_id, false, "login: " + li.msg);
-      continue;
-    }
+    const li = await dvSteamLoginHidden(acc.username, acc.password, safeLog);
+    if (!li.ok) { safeLog("Login that bai: " + li.msg + " -> thu tai khoan khac"); lastMsg = li.msg; continue; }
 
     let done = null;
-    let failReason = "";
     try {
       // Sau khi login, Steam can vai giay de sync license/ownership; chay extract_tickets
       // ngay se ra "no ticket". Cho + thu lai toi 5 lan (~4s/lan) -> co ticket la dung.
@@ -1044,21 +1205,18 @@ async function denuvoRun(appid, name, log) {
         const w = dvWriteTicketFiles(temp, steamPath, appid, name, parsed.appticket, parsed.eticket, safeLog);
         dvCleanupExtracted(temp);   // don extracted (im lang), chi giu lai cong cu fix
         safeLog("HOAN TAT.");
-        done = { ok: true, appid, account: lease.username, appticket: parsed.appticket, eticket: parsed.eticket, ...w };
+        done = { ok: true, appid, account: acc.username, appticket: parsed.appticket, eticket: parsed.eticket, ...w };
       } else {
         safeLog("Khong lay duoc ticket (" + parsed.msg + ") -> thu tai khoan khac");
         lastMsg = parsed.msg;
-        failReason = "ticket: " + parsed.msg;
       }
     } finally {
       await dvSteamLogout(safeLog);
-      // Bao ket qua ve backend -> account hong tu bi dem loi/chan, va co audit trail.
-      await api().denuvoResult(lease.account_id, !!done, failReason);
     }
     if (done) return done;
   }
 
-  log("Khong lay duoc ticket cho game nay.");
+  log("Da thu het tai khoan nhung khong lay duoc ticket.");
   return { ok: false, msg: lastMsg || "khong tai khoan nao lay duoc ticket" };
 }
 
@@ -1120,9 +1278,12 @@ function findRendererRoot(dir) {
 // Kiem tra ban renderer moi tren Supabase (bang g4_renderer: version, url zip, notes).
 ipcMain.handle("renderer-check", async () => {
   const current = activeRendererVersion();
-  if (!API_BASE) return { update: false, current };
+  if (!SUPA_URL || !SUPA_KEY) return { update: false, current };
   try {
-    const rel = await api().update("renderer");
+    const r = await fetch(`${SUPA_URL}/rest/v1/denuvo_renderer?select=*&order=created_at.desc&limit=1`,
+      { headers: { apikey: SUPA_KEY, Authorization: "Bearer " + SUPA_KEY } });
+    if (!r.ok) return { update: false, current };
+    const rel = (await r.json())[0];
     if (!rel || !rel.version) return { update: false, current };
     return { update: verGt(rel.version, current), version: rel.version, url: rel.url, notes: rel.notes, current };
   } catch (_) { return { update: false, current }; }
