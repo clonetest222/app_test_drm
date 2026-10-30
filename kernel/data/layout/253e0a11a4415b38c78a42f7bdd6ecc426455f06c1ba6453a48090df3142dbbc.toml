@@ -1,0 +1,20 @@
+# Offset/flag do RE dien tay cho DUNG ban steamclient64.dll nay (ten file = sha256).
+# File nay KHONG bi tools/sync_steam_monitor.ps1 ghi de (no chi dong vao data/pattern +
+# data/ipc), nen offset ban RE duoc GIU qua moi lan resync.
+#
+# resolver.hpp doc [layout] o day, hooks.cpp dung lam cau hinh CheckAppOwnership.
+# Gia tri so viet dang chuoi ("0x08" hoac "8"); dong bat dau bang # bi bo qua.
+
+[layout]
+# Ep CheckAppOwnership tra "owned" cho appid co ticket (1 = bat, 0 = chi quan sat).
+own_force        = "1"
+# Gia tri tra ve coi la owned (EResult k_EResultOK = 1).
+own_result_value = "1"
+# Gia tri set vao field "owned" trong CAppOwnershipInfo khi da biet offset.
+owns_value       = "1"
+
+# >>> CAN RE: offset (byte) cua field "owned" trong CAppOwnershipInfo.
+#     Mo Steam voi 1 game Denuvo da fix -> xem kernel.log dong "[RE] CAppOwnershipInfo(...)
+#     N byte dau: ..." -> so sanh voi 1 game SO HUU THAT, tim byte doi 00->01.
+#     Bo dau # va dien so vao, mo lai Steam la ep owned that su (khong chi tra value).
+# owns_offset = "0x08"

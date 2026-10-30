@@ -26,7 +26,13 @@ contextBridge.exposeInMainWorld("denuvo", {
   installed: () => ipcRenderer.invoke("denuvo-installed"),                 // appid tu moi file .lua
   gamesOnly: (appids) => ipcRenderer.invoke("denuvo-games-only", appids),  // loc DLC -> chi game chinh
   prepare: () => ipcRenderer.invoke("denuvo-prepare"),
+  permissions: () => ipcRenderer.invoke("denuvo-permissions"),   // han ngach con lai (khi dung backend)
   run: (appid, name) => ipcRenderer.invoke("denuvo-run", { appid, name }),
+  runManual: (appid, username, password, name) => ipcRenderer.invoke("denuvo-run-manual", { appid, username, password, name }),
+  applyCwk: (path) => ipcRenderer.invoke("denuvo-apply-cwk", { path }),   // giai ma .CWK -> ghi lua+registry
+  kernelInstall: () => ipcRenderer.invoke("denuvo-kernel-install"),       // tai + cai dwmapi.dll vao Steam\bin
   onLog: (cb) => ipcRenderer.on("denuvo-log", (_e, line) => cb(line)),
   expiry: () => ipcRenderer.invoke("denuvo-expiry"),   // ds ticket + con han/het han
+  remove: (appid) => ipcRenderer.invoke("denuvo-remove", { appid }),   // xoa ticket 1 appid
+  cleanExpired: () => ipcRenderer.invoke("denuvo-clean-expired"),      // don ticket het han
 });

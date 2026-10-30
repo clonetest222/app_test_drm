@@ -1,0 +1,16 @@
+# Build + output
+build/
+dist/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# Du lieu dong bo tu steam-monitor (tai bang tools/sync_steam_monitor.ps1)
+data/pattern/*.toml
+data/ipc/*.toml
+
+# Runtime
+kernel.log
+cwk/

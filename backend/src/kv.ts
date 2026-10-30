@@ -18,13 +18,14 @@
 //    ["nonce", nonce]                  chong replay, TTL 5 phut
 //    ["acct", accountId]               { fail_count, cooldown_until, last_used_at }
 //    ["rate", deviceId, bucket]        dem so lan, TTL theo cua so
+//    ["hold", deviceId, leaseId]       request dang cho confirm, TTL 10 phut
 //    ["lease", ts_rand]                audit, TTL 90 ngay
 // ============================================================================
 import { hex, randomBytes } from "./crypto.ts";
 import { MemKv } from "./memkv.ts";
 
 // Chi dung mot phan nho cua API Deno.Kv -> khai bao vua du de MemKv thay the duoc.
-type KvLike = Pick<Deno.Kv, "get" | "getMany" | "set" | "list" | "atomic">;
+type KvLike = Pick<Deno.Kv, "get" | "getMany" | "set" | "list" | "atomic" | "delete">;
 
 let _kv: KvLike | null = null;
 let _inMemory = false;
@@ -235,6 +236,48 @@ export async function bumpCounter(parts: (string | number)[], windowMs: number):
   const n2 = (typeof again.value === "number" ? again.value : 0) + 1;
   await db.set(key, n2, { expireIn: windowMs * 2 });
   return n2;
+}
+
+/**
+ * Doc gia tri bo dem cua cua so HIEN TAI ma KHONG tang.
+ * Dung o buoc auth/request de kiem tra han muc truoc; quota chi bi TRU THAT
+ * (bumpCounter) khi auth/confirm. Nho vay lan fix that bai khong an mat quota.
+ */
+export async function readCounter(parts: (string | number)[], windowMs: number): Promise<number> {
+  const bucket = Math.floor(Date.now() / windowMs);
+  const key = ["rate", ...parts, bucket] as Deno.KvKey;
+  const cur = await (await kv()).get<number>(key);
+  return typeof cur.value === "number" ? cur.value : 0;
+}
+
+// ------------------------------------------------------------- hold (giu cho)
+// Mot "hold" = mot lan auth/request DANG CHO ket qua (confirm hoac cancel).
+// Han muc tinh ca hold dang treo (chong spam request khong bao gio confirm),
+// nhung quota CHI bi tru that o auth/confirm. App tat giua chung -> hold tu het
+// han sau HOLD_TTL_MS, khong ket dinh quota.
+export interface Hold {
+  appid: string;
+  accountId: number | null;
+  at: number;
+}
+export const HOLD_TTL_MS = 10 * 60_000;
+
+export async function putHold(deviceId: string, leaseId: string, h: Hold): Promise<void> {
+  await (await kv()).set(["hold", deviceId, leaseId], h, { expireIn: HOLD_TTL_MS });
+}
+export async function getHold(deviceId: string, leaseId: string): Promise<Hold | null> {
+  return (await (await kv()).get<Hold>(["hold", deviceId, leaseId])).value ?? null;
+}
+export async function delHold(deviceId: string, leaseId: string): Promise<void> {
+  await (await kv()).delete(["hold", deviceId, leaseId]);
+}
+/** Danh sach hold dang treo cua 1 device (da loc het han nho TTL cua KV). */
+export async function listHolds(deviceId: string): Promise<Hold[]> {
+  const out: Hold[] = [];
+  for await (const e of (await kv()).list<Hold>({ prefix: ["hold", deviceId] }, { limit: 100 })) {
+    out.push(e.value);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- audit

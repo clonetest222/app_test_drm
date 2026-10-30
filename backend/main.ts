@@ -12,7 +12,10 @@ import { cfg, secrets } from "./src/config.ts";
 import { requireAdmin, requireDevice } from "./src/auth.ts";
 import { clientIp, fail, HttpError, logLine, ok } from "./src/http.ts";
 import { enroll } from "./src/routes/devices.ts";
-import { requirement, ticket, ticketResult } from "./src/routes/denuvo.ts";
+import {
+  authCancel, authConfirm, authRequest, permissions,
+  requirement, ticket, ticketResult,
+} from "./src/routes/denuvo.ts";
 import { release, renderer } from "./src/routes/updates.ts";
 import * as admin from "./src/routes/admin.ts";
 import { kvIsInMemory, loadSecrets } from "./src/kv.ts";
@@ -46,6 +49,12 @@ async function route(req: Request, info?: Deno.ServeHandlerInfo): Promise<Respon
   // ---- can chu ky device ----
   if (path.startsWith("/v1/denuvo/")) {
     const auth = await requireDevice(req, bodyText);
+    // Luong bat dong bo (hoc tu CaigamerQ) — quota chi tru khi fix thanh cong.
+    if (path === "/v1/denuvo/auth/request" && req.method === "POST") return await authRequest(auth, bodyText, ip);
+    if (path === "/v1/denuvo/auth/confirm" && req.method === "POST") return await authConfirm(auth, bodyText, ip);
+    if (path === "/v1/denuvo/auth/cancel" && req.method === "POST") return await authCancel(auth, bodyText, ip);
+    if (path === "/v1/denuvo/permissions" && req.method === "GET") return await permissions(auth);
+    // Legacy (app cu): xin la tru quota ngay. Giu de app chua cap nhat van chay.
     if (path === "/v1/denuvo/ticket" && req.method === "POST") return await ticket(auth, bodyText, ip);
     if (path === "/v1/denuvo/ticket/result" && req.method === "POST") return await ticketResult(auth, bodyText, ip);
     if (path === "/v1/denuvo/requirement" && req.method === "GET") return await requirement(auth);

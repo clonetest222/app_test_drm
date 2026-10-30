@@ -318,6 +318,8 @@ function openDenuvoModal() {
   $("#denuvo-result").className = "dv-result"; $("#denuvo-result").textContent = "";
   $("#denuvo-fix-btn").disabled = true;
   denuvoManualAppid = null;
+  const u = $("#denuvo-user"), p = $("#denuvo-pass");
+  if (u) u.value = ""; if (p) p.value = "";   // khong luu lai tk/mk da nhap
   denuvoModal.classList.remove("hidden");
   $("#denuvo-appid").focus();
 }
@@ -334,6 +336,22 @@ function setDenuvoResult(label, color, detail) {
 
 $("#dv-fix-manual").onclick = openDenuvoModal;
 $("#denuvo-modal-cancel").onclick = closeDenuvoModal;
+
+// Xóa thủ công ticket của AppID đang nhập.
+$("#denuvo-remove-btn").onclick = async () => {
+  const appid = ($("#denuvo-appid").value || "").trim();
+  if (!/^\d+$/.test(appid)) { setDenuvoResult("AppID phải là số", "#ff6b5e", "Nhập AppID để xóa ticket"); return; }
+  setDenuvoResult("Đang xóa ticket...", "#9aa3bd", "");
+  let r;
+  try { r = await window.denuvo.remove(appid); } catch (e) { r = { ok: false, msg: String(e) }; }
+  if (r && r.ok) {
+    setDenuvoResult(r.removed ? "Đã xóa ✔" : "Không có ticket", r.removed ? "#36c275" : "#e8b007", r.msg || "");
+    const old = denuvoToastState.get(String(appid));
+    if (old) { old.el.remove(); denuvoToastState.delete(String(appid)); }
+    denuvoDismissedToasts.add(String(appid));   // vừa xóa thì đừng nhắc lại ngay
+    refreshDenuvoToasts();
+  } else setDenuvoResult("Xóa lỗi", "#ff6b5e", (r && r.msg) || "không rõ");
+};
 
 $("#denuvo-check-btn").onclick = async () => {
   const appid = ($("#denuvo-appid").value || "").trim();
@@ -363,6 +381,17 @@ $("#denuvo-fix-btn").onclick = () => {
   if (!/^\d+$/.test(appid)) return;
   closeDenuvoModal();
   denuvoRunFlow(appid, `App ${appid}`);
+};
+
+// Fix bằng tài khoản tự nhập (bỏ qua DB): login acc đó -> dump ticket appid -> ghi lua.
+$("#denuvo-fix-manual-acc").onclick = () => {
+  const appid = ($("#denuvo-appid").value || "").trim();
+  const user = ($("#denuvo-user").value || "").trim();
+  const pass = $("#denuvo-pass").value || "";
+  if (!/^\d+$/.test(appid)) { setDenuvoResult("AppID phải là số", "#ff6b5e", "Nhập AppID ở ô trên"); return; }
+  if (!user || !pass) { setDenuvoResult("Thiếu tài khoản", "#ff6b5e", "Nhập username + password Steam"); return; }
+  closeDenuvoModal();
+  denuvoRunManualFlow(appid, user, pass);
 };
 
 // ---- Terminal trong app + luồng fix Denuvo ----
@@ -401,6 +430,27 @@ async function denuvoRunFlow(appid, name) {
   dvTermLine(`=== Bắt đầu fix Denuvo cho appid ${appid} ===`);
   let r;
   try { r = await window.denuvo.run(appid, name); }
+  catch (e) { r = { ok: false, msg: String(e) }; }
+  if (r && r.ok) {
+    dvTermLine("=== THÀNH CÔNG (ticket có hiệu lực 30 phút) ===");
+    denuvoDismissedToasts.delete(String(appid));
+    const old = denuvoToastState.get(String(appid));
+    if (old) { old.el.remove(); denuvoToastState.delete(String(appid)); }
+    refreshDenuvoToasts();
+  } else dvTermLine(`=== THẤT BẠI: ${(r && r.msg) || "không rõ"} ===`);
+  denuvoRunning = false;
+}
+
+// Fix bằng tài khoản tự nhập (login acc đó -> dump ticket appid).
+async function denuvoRunManualFlow(appid, username, password) {
+  appid = String(appid);
+  if (!/^\d+$/.test(appid)) return;
+  if (denuvoRunning) { dvTermModal.classList.remove("hidden"); return; }
+  denuvoRunning = true;
+  dvTermOpen(`Acc tự nhập (${appid})`);
+  dvTermLine(`=== Fix Denuvo bằng acc tự nhập cho appid ${appid} ===`);
+  let r;
+  try { r = await window.denuvo.runManual(appid, username, password, `App ${appid}`); }
   catch (e) { r = { ok: false, msg: String(e) }; }
   if (r && r.ok) {
     dvTermLine("=== THÀNH CÔNG (ticket có hiệu lực 30 phút) ===");

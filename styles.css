@@ -395,3 +395,7 @@ html, body {
 }
 .dv-toast .x:hover { color: var(--text); }
 @keyframes dvToastIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+
+/* Fix thu cong bang acc tu nhap */
+.dv-manual-sep { text-align: center; color: #8c96b2; font-size: 12px; margin: 14px 0 10px; }
+#denuvo-user, #denuvo-pass { font-family: inherit; }

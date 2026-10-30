@@ -138,7 +138,19 @@
       <div class="umodal-actions">
         <button class="btn ghost" id="denuvo-check-btn">🔍 Kiểm tra</button>
         <button class="btn primary" id="denuvo-fix-btn" disabled>🛠 Fix</button>
+        <button class="btn ghost" id="denuvo-remove-btn">🗑 Xóa ticket</button>
         <button class="btn ghost" id="denuvo-modal-cancel">Đóng</button>
+      </div>
+
+      <div class="dv-manual-sep">— hoặc fix bằng tài khoản tự nhập —</div>
+      <div class="input-wrap">
+        <input type="text" id="denuvo-user" placeholder="Username Steam (acc sở hữu game)" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="input-wrap">
+        <input type="password" id="denuvo-pass" placeholder="Password Steam" autocomplete="off" />
+      </div>
+      <div class="umodal-actions">
+        <button class="btn primary" id="denuvo-fix-manual-acc">🛠 Fix bằng acc này</button>
       </div>
     </div>
   </div>

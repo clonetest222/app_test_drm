@@ -215,6 +215,37 @@ class G4Api {
   }
 
   // ---------------------------------------------------------------- endpoint
+  // --- Luong bat dong bo (hoc tu CaigamerQ): request -> confirm / cancel ---
+  // Quota CHI bi tru o confirm (khi fix da thanh cong). Lan fix hong -> cancel,
+  // khong an mat luot cua nguoi dung.
+
+  /** Xin 1 account cho appid (tao hold, CHUA tru quota). `exclude` = account_id da hong. */
+  denuvoAuthRequest(appid, exclude) {
+    return this.signed("POST", "/v1/denuvo/auth/request",
+      { appid: String(appid), exclude: exclude || [], app_version: this.appVersion });
+  }
+
+  /** Fix xong -> xac nhan, backend TRU quota. Tra ve { ok, quota }. */
+  denuvoAuthConfirm(leaseId) {
+    return this.signed("POST", "/v1/denuvo/auth/confirm", { lease_id: String(leaseId) });
+  }
+
+  /** Fix that bai / bo -> tra hold (khong tru quota) + bao account hong. */
+  async denuvoAuthCancel(leaseId, accountId, okFlag, reason) {
+    try {
+      await this.signed("POST", "/v1/denuvo/auth/cancel", {
+        lease_id: leaseId == null ? "" : String(leaseId),
+        account_id: accountId,
+        ok: !!okFlag,
+        reason: String(reason || "").slice(0, 200),
+      });
+    } catch (_) { /* bao huy that bai khong duoc lam hong luong fix */ }
+  }
+
+  /** Trang thai han muc hien tai cua may nay (cho UI hien truoc khi fix). */
+  denuvoPermissions() { return this.signed("GET", "/v1/denuvo/permissions", null); }
+
+  // --- Legacy (giu lai phong khi can quay ve luong cu) ---
   /** Muon 1 tai khoan cho appid. `exclude` = cac account_id da thu that bai. */
   denuvoTicket(appid, exclude) {
     return this.signed("POST", "/v1/denuvo/ticket",

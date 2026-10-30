@@ -1,0 +1,121 @@
+; TU SINH - export table proxy dwmapi.dll (tro vao thunk_i)
+EXPORTS
+    DllCanUnloadNow=thunk_0 @111
+    DllGetClassObject=thunk_1 @115
+    DwmAttachMilContent=thunk_2 @116
+    DwmDefWindowProc=thunk_3 @117
+    DwmDetachMilContent=thunk_4 @118
+    DwmEnableBlurBehindWindow=thunk_5 @119
+    DwmEnableComposition=thunk_6 @102
+    DwmEnableMMCSS=thunk_7 @120
+    DwmExtendFrameIntoClientArea=thunk_8 @121
+    DwmFlush=thunk_9 @122
+    DwmGetColorizationColor=thunk_10 @123
+    DwmGetCompositionTimingInfo=thunk_11 @125
+    DwmGetGraphicsStreamClient=thunk_12 @126
+    DwmGetGraphicsStreamTransformHint=thunk_13 @129
+    DwmGetTransportAttributes=thunk_14 @130
+    DwmGetUnmetTabRequirements=thunk_15 @133
+    DwmGetWindowAttribute=thunk_16 @134
+    DwmInvalidateIconicBitmaps=thunk_17 @146
+    DwmIsCompositionEnabled=thunk_18 @149
+    DwmModifyPreviousDxFrameDuration=thunk_19 @205
+    DwmQueryThumbnailSourceSize=thunk_20 @206
+    DwmRegisterThumbnail=thunk_21 @207
+    DwmRenderGesture=thunk_22 @208
+    DwmSetDxFrameDuration=thunk_23 @209
+    DwmSetIconicLivePreviewBitmap=thunk_24 @210
+    DwmSetIconicThumbnail=thunk_25 @211
+    DwmSetPresentParameters=thunk_26 @212
+    DwmSetWindowAttribute=thunk_27 @213
+    DwmShowContact=thunk_28 @214
+    DwmTetherContact=thunk_29 @215
+    DwmTetherTextContact=thunk_30 @156
+    DwmTransitionOwnedWindow=thunk_31 @216
+    DwmUnregisterThumbnail=thunk_32 @217
+    DwmUpdateThumbnailProperties=thunk_33 @218
+    DwmpAllocateSecurityDescriptor=thunk_34 @136
+    DwmpDxGetWindowSharedSurface=thunk_35 @100
+    DwmpDxUpdateWindowSharedSurface=thunk_36 @101
+    DwmpDxgiIsThreadDesktopComposited=thunk_37 @128
+    DwmpEnableDDASupport=thunk_38 @143
+    DwmpFreeSecurityDescriptor=thunk_39 @137
+    DwmpGetColorizationParameters=thunk_40 @127
+    DwmpRenderFlick=thunk_41 @135
+    DwmpSetColorizationParameters=thunk_42 @131
+    DwmpUpdateProxyWindowForCapture=thunk_43 @183
+    thunk_44 @103 NONAME
+    thunk_45 @104 NONAME
+    thunk_46 @105 NONAME
+    thunk_47 @106 NONAME
+    thunk_48 @107 NONAME
+    thunk_49 @108 NONAME
+    thunk_50 @109 NONAME
+    thunk_51 @110 NONAME
+    thunk_52 @112 NONAME
+    thunk_53 @113 NONAME
+    thunk_54 @114 NONAME
+    thunk_55 @124 NONAME
+    thunk_56 @132 NONAME
+    thunk_57 @138 NONAME
+    thunk_58 @139 NONAME
+    thunk_59 @140 NONAME
+    thunk_60 @141 NONAME
+    thunk_61 @142 NONAME
+    thunk_62 @144 NONAME
+    thunk_63 @145 NONAME
+    thunk_64 @147 NONAME
+    thunk_65 @148 NONAME
+    thunk_66 @150 NONAME
+    thunk_67 @151 NONAME
+    thunk_68 @152 NONAME
+    thunk_69 @153 NONAME
+    thunk_70 @154 NONAME
+    thunk_71 @155 NONAME
+    thunk_72 @157 NONAME
+    thunk_73 @158 NONAME
+    thunk_74 @159 NONAME
+    thunk_75 @160 NONAME
+    thunk_76 @161 NONAME
+    thunk_77 @162 NONAME
+    thunk_78 @163 NONAME
+    thunk_79 @164 NONAME
+    thunk_80 @165 NONAME
+    thunk_81 @166 NONAME
+    thunk_82 @167 NONAME
+    thunk_83 @168 NONAME
+    thunk_84 @169 NONAME
+    thunk_85 @170 NONAME
+    thunk_86 @171 NONAME
+    thunk_87 @172 NONAME
+    thunk_88 @173 NONAME
+    thunk_89 @174 NONAME
+    thunk_90 @175 NONAME
+    thunk_91 @176 NONAME
+    thunk_92 @177 NONAME
+    thunk_93 @178 NONAME
+    thunk_94 @179 NONAME
+    thunk_95 @180 NONAME
+    thunk_96 @181 NONAME
+    thunk_97 @182 NONAME
+    thunk_98 @184 NONAME
+    thunk_99 @185 NONAME
+    thunk_100 @186 NONAME
+    thunk_101 @187 NONAME
+    thunk_102 @188 NONAME
+    thunk_103 @189 NONAME
+    thunk_104 @190 NONAME
+    thunk_105 @191 NONAME
+    thunk_106 @192 NONAME
+    thunk_107 @193 NONAME
+    thunk_108 @194 NONAME
+    thunk_109 @195 NONAME
+    thunk_110 @196 NONAME
+    thunk_111 @197 NONAME
+    thunk_112 @198 NONAME
+    thunk_113 @199 NONAME
+    thunk_114 @200 NONAME
+    thunk_115 @201 NONAME
+    thunk_116 @202 NONAME
+    thunk_117 @203 NONAME
+    thunk_118 @204 NONAME

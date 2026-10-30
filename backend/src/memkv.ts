@@ -74,6 +74,11 @@ export class MemKv {
     return { ok: true };
   }
 
+  // deno-lint-ignore require-await
+  async delete(key: Key): Promise<void> {
+    this.#map.delete(enc(key));
+  }
+
   async *list<T>(
     sel: { prefix: Key },
     opts?: { limit?: number },
