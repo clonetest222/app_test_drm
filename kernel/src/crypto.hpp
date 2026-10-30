@@ -2,7 +2,7 @@
 //   * SHA-256  — bam steamclient64.dll de tra cuu file pattern/ipc theo hash.
 //   * AES-256-GCM decrypt — mo file .CWK.
 // Khoa .CWK = SHA-256(CWK_SEED). CWK_SEED chi la rao can doc-ngang (obfuscation),
-// KHONG phai bao mat that — y het CW_AES_KEY_SEED cua CaigamerQ. Bao mat that nam
+// KHONG phai bao mat that — y het CW_AES_KEY_SEED cua tool khac. Bao mat that nam
 // o backend (ky HMAC + quota). Seed nay phai TRUNG voi ben Node (xem api/main.js).
 #pragma once
 #include <windows.h>

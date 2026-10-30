@@ -215,7 +215,7 @@ class G4Api {
   }
 
   // ---------------------------------------------------------------- endpoint
-  // --- Luong bat dong bo (hoc tu CaigamerQ): request -> confirm / cancel ---
+  // --- Luong bat dong bo (hoc tu tool khac): request -> confirm / cancel ---
   // Quota CHI bi tru o confirm (khi fix da thanh cong). Lan fix hong -> cancel,
   // khong an mat luot cua nguoi dung.
 

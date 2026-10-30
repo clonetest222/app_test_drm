@@ -1,6 +1,6 @@
 # g4market kernel (native) — proxy dwmapi.dll + hook steamclient, ăn `.CWK`
 
-Kernel riêng cho g4market, cùng kỹ thuật với CaigamerQ: một `dwmapi.dll` giả được Steam
+Kernel riêng cho g4market, cùng kỹ thuật với tool khac: một `dwmapi.dll` giả được Steam
 nạp vào `steam.exe`, hook `steamclient64.dll` để báo "đã sở hữu" và nạp **ticket thật**
 (do only_denuvo dump ra, đóng gói trong file `.CWK`).
 
@@ -42,7 +42,7 @@ cmake --build build --config Release
 ## Triển khai (ĐÃ TEST THẬT — **1 file duy nhất**, chú ý chỗ `bin\`)
 
 > Đo thực tế trên máy này: **`steam.exe` nạp `dwmapi.dll` từ `<Steam>\bin\`, KHÔNG phải
-> `<Steam>\` gốc.** Đặt ở gốc thì không bao giờ được nạp. (Đây cũng là slot CaigamerQ dùng.)
+> `<Steam>\` gốc.** Đặt ở gốc thì không bao giờ được nạp. (Đây cũng là slot tool khac dùng.)
 
 1. `powershell -ExecutionPolicy Bypass -File tools\sync_steam_monitor.ps1`
    → nạp `data\pattern\<hash>.toml` + `data\ipc\<hash>.toml` cho steamclient hiện tại.
@@ -76,11 +76,11 @@ Cần **VS2022 BuildTools** (có MASM `ml64` + Ninja). `cmake -S . -B build` r�
 > `.CWK` do only_denuvo tạo: `main.js: dvPackCWK` ghi `<Steam>\cwk\<appid>.cwk`. Seed AES phải
 > trùng: `kernel/src/crypto.hpp CWK_SEED` ⇄ `main.js CWK_SEED`.
 >
-> **Nội dung `.CWK` = đúng block lua** (`setAppTicket/setETicket`, giống CaigamerQ
+> **Nội dung `.CWK` = đúng block lua** (`setAppTicket/setETicket`, giống tool khac
 > `batch_lua_content`) chỉ khác là đã mã hoá. Nên kernel đọc được **cả** `.cwk` lẫn file
 > `denuvo_g4play.lua` tRÒN (`config\lua` + `config\stplug-in`) bằng **cùng một parser**
 > (`cwk.hpp: parseTicketLua`). Bên client cũng giải mã ngược được: `main.js: dvApplyCWK`
-> (đúng path "decrypt .CWK → ghi lua" của CaigamerQ) — nhờ vậy `.CWK` dùng được **ngay cả
+> (đúng path "decrypt .CWK → ghi lua" của tool khac) — nhờ vậy `.CWK` dùng được **ngay cả
 > khi chưa có kernel native**.
 
 ## TRẠNG THÁI (đọc kỹ)

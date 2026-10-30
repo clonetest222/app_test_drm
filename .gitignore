@@ -5,6 +5,8 @@ build/
 temp/
 update/
 renderer_update/
+.env
 .env.bak
 accounts.json
 accounts.csv
+*.lnk

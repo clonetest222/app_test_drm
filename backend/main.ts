@@ -49,7 +49,7 @@ async function route(req: Request, info?: Deno.ServeHandlerInfo): Promise<Respon
   // ---- can chu ky device ----
   if (path.startsWith("/v1/denuvo/")) {
     const auth = await requireDevice(req, bodyText);
-    // Luong bat dong bo (hoc tu CaigamerQ) — quota chi tru khi fix thanh cong.
+    // Luong bat dong bo (hoc tu tool khac) — quota chi tru khi fix thanh cong.
     if (path === "/v1/denuvo/auth/request" && req.method === "POST") return await authRequest(auth, bodyText, ip);
     if (path === "/v1/denuvo/auth/confirm" && req.method === "POST") return await authConfirm(auth, bodyText, ip);
     if (path === "/v1/denuvo/auth/cancel" && req.method === "POST") return await authCancel(auth, bodyText, ip);

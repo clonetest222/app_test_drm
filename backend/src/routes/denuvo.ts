@@ -185,7 +185,7 @@ export async function ticketResult(auth: AuthedDevice, bodyText: string, ip: str
 }
 
 // ============================================================================
-//  LUONG BAT DONG BO (hoc tu CaigamerQ): request -> confirm / cancel
+//  LUONG BAT DONG BO (hoc tu tool khac): request -> confirm / cancel
 //
 //    auth/request : KIEM TRA han muc (KHONG tru), chon account, tao HOLD, tra
 //                   lease trong phong bi ma hoa. Quota chua bi dong.
@@ -197,7 +197,7 @@ export async function ticketResult(auth: AuthedDevice, bodyText: string, ip: str
 //
 //  Van la hybrid: ticket that van do MAY NGUOI DUNG dump (extract_tickets) vi
 //  Deno Deploy khong mo socket toi Steam CM de tu mint. Backend chi dieu phoi
-//  account + quota + audit theo dung hinh dang async cua CaigamerQ.
+//  account + quota + audit theo dung hinh dang async cua tool khac.
 // ============================================================================
 const randLeaseSuffix = () => hex.enc(randomBytes(4));
 

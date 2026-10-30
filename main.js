@@ -1054,7 +1054,7 @@ function dvTicketLuaPaths(steamPath) {
 }
 
 // Block lua chuan cho 1 ticket. Dung CHUNG cho file .lua VA cho plaintext ben trong
-// .CWK -> hai kenh luon mang DUNG mot noi dung (`batch_lua_content` kieu CaigamerQ),
+// .CWK -> hai kenh luon mang DUNG mot noi dung (`batch_lua_content` kieu tool khac),
 // chi khac co ma hoa hay khong. Parser C++ (kernel/src/cwk.hpp parseTicketLua) doc
 // dung format nay cho ca .lua lan .cwk.
 function dvTicketLuaBlock(appid, name, appticketHex, eticketHex, ts) {
@@ -1064,6 +1064,13 @@ function dvTicketLuaBlock(appid, name, appticketHex, eticketHex, ts) {
     `--denuvo appid=${appid} created=${ts} createdAt="${iso}" name=${safeName}`,
     `setAppTicket(${appid}, "${appticketHex}")`,
     `setETicket(${appid}, "${eticketHex}")`,
+    // Cau hinh Denuvo cho engine (OpenSteamTool/xinput1_4.dll):
+    //  forcedenuvo: ep duong Denuvo (ProtectionScan co the bo sot game) -> arm cua so uy quyen.
+    //  dauth2     : cua so dai (2500ms+3000ms) thay vi 300ms -> con mo luc game xin ownership
+    //               ticket muon -> serve ticket THAT cua donor (khong forge rac) -> GetSteamID
+    //               spoof khop memcmp -> qua loi 54. (Day la mat xich da fix duoc Onimusha.)
+    `forcedenuvo(${appid})`,
+    `dauth2(${appid})`,
   ].join("\r\n");
 }
 
@@ -1087,13 +1094,24 @@ function dvPurgeOldTicketBlocks(steamPath, appid) {
   }
 }
 
-// Ghi ticket vao REGISTRY (giong CaigamerQ `write_steam_registry`):
+// SteamID cua DONOR nam trong ownership ticket (appticket) tai offset 8, 8 byte LE:
+//   layout: [uint32 Size][uint32 Version][uint64 SteamID][...]
+// Loader (OpenSteamTool/xinput) spoof GetSteamID = gia tri nay -> Denuvo so chéo
+//   memcmp(ticket.SteamID, GetSteamID()) MOI khop -> khong thi bao LOI 54.
+function dvSteamIdFromAppticket(hex) {
+  if (!hex || hex.length < 32) return null;
+  const le = hex.substr(16, 16);            // 8 byte offset 8 (dang hex LE)
+  let be = "";
+  for (let i = 14; i >= 0; i -= 2) be += le.substr(i, 2);   // dao ve big-endian
+  try { const v = BigInt("0x" + be); return v === 0n ? null : v.toString(); }
+  catch (_) { return null; }
+}
+
+// Ghi ticket vao REGISTRY = credential store ma loader (xinput/OpenSteamTool) DOC:
 //   HKCU\Software\Valve\Steam\Apps\<appid>\AppTicket  (REG_BINARY = byte tho)
 //   HKCU\Software\Valve\Steam\Apps\<appid>\ETicket    (REG_BINARY)
-// Day la DUNG o Steam ghi ticket cua chinh no -> kernel/Steam doc duoc, khong
-// phu thuoc loader doc lua. Bo tro (them kenh) cho lua `setAppTicket/setETicket`.
-// appticket/eticket vao day la chuoi HEX; reg add REG_BINARY nhan chuoi hex lien
-// (khong "0x", khong khoang trang).
+//   HKCU\Software\Valve\Steam\Apps\<appid>\SteamID    (REG_SZ = SteamID donor, so thap phan)
+// SteamID la MAU CHOT: thieu no loader khong spoof GetSteamID -> Denuvo bao loi 54.
 function dvWriteTicketRegistry(appid, appticketHex, eticketHex, log) {
   if (!/^[0-9a-fA-F]+$/.test(appticketHex) || appticketHex.length % 2 ||
       !/^[0-9a-fA-F]+$/.test(eticketHex) || eticketHex.length % 2) {
@@ -1101,13 +1119,20 @@ function dvWriteTicketRegistry(appid, appticketHex, eticketHex, log) {
     return false;
   }
   const key = `HKCU\\Software\\Valve\\Steam\\Apps\\${appid}`;
-  const put = (name, hex) => execFileSync(
+  const putBin = (name, hex) => execFileSync(
     "reg", ["add", key, "/v", name, "/t", "REG_BINARY", "/d", hex, "/f"],
     { windowsHide: true, stdio: "ignore" });
   try {
-    put("AppTicket", appticketHex);
-    put("ETicket", eticketHex);
-    if (log) log(`Da ghi ticket vao registry: ${key} (AppTicket/ETicket).`);
+    putBin("AppTicket", appticketHex);
+    putBin("ETicket", eticketHex);
+    const steamId = dvSteamIdFromAppticket(appticketHex);
+    if (steamId) {
+      execFileSync("reg", ["add", key, "/v", "SteamID", "/t", "REG_SZ", "/d", steamId, "/f"],
+        { windowsHide: true, stdio: "ignore" });
+      if (log) log(`Da ghi registry: AppTicket/ETicket + SteamID=${steamId} (de loader spoof GetSteamID -> qua loi 54).`);
+    } else {
+      if (log) log("Da ghi registry AppTicket/ETicket (KHONG trich duoc SteamID tu ticket -> loader tu moi offset 8).");
+    }
     return true;
   } catch (e) {
     if (log) log("Khong ghi duoc ticket vao registry (auth_registry_failed): " + ((e && e.message) || e));
@@ -1125,7 +1150,7 @@ function dvCwkPath(steamPath, appid) { return path.join(dvCwkDir(steamPath), `${
 // Tao file .CWK (1 ticket/file): magic "G4CWK1" + ver(1) + iv(12) + tag(16) + ciphertext.
 // ciphertext = AES-256-GCM(plaintext, key=sha256(CWK_SEED), iv, aad="g4cwk-v1").
 // plaintext = DUNG block lua (dvTicketLuaBlock) -> giai ma .CWK ra la lua chay duoc
-// ngay (giong CaigamerQ: decrypt .CWK -> batch_lua_content). .CWK & lua khop tuyet doi.
+// ngay (giong tool khac: decrypt .CWK -> batch_lua_content). .CWK & lua khop tuyet doi.
 function dvPackCWK(steamPath, appid, name, appticketHex, eticketHex, created, log) {
   try {
     const key = crypto.createHash("sha256").update(CWK_SEED).digest();
@@ -1146,7 +1171,7 @@ function dvDeleteCwk(steamPath, appid) {
   try { fs.rmSync(dvCwkPath(steamPath, appid), { force: true }); } catch (_) {}
 }
 
-// Giai ma .CWK -> lay lai noi dung lua + cac truong (giong pycryptodome cua CaigamerQ:
+// Giai ma .CWK -> lay lai noi dung lua + cac truong (giong pycryptodome cua tool khac:
 // decrypt -> batch_lua_content). Vo dao nguoc dvPackCWK. Tra null neu sai seed / hong /
 // thieu ticket. Dung khi .CWK la NGUON (backend ship, dong bo tu may khac, ap thu cong).
 function dvUnpackCWK(buf) {
@@ -1172,7 +1197,7 @@ function dvUnpackCWK(buf) {
 
 // Ap dung 1 .CWK: giai ma -> GHI lua + registry (KHONG tao lai .CWK vi .CWK chinh la
 // nguon). Nhan Buffer hoac duong dan. Chinh la khuc "decrypt .CWK -> write lua" cua
-// CaigamerQ, de only_denuvo dung duoc .CWK ma KHONG can kernel native.
+// tool khac, de only_denuvo dung duoc .CWK ma KHONG can kernel native.
 function dvApplyCWK(steamPath, cwkBufOrPath, log) {
   let buf = cwkBufOrPath;
   if (typeof cwkBufOrPath === "string") {
@@ -1195,10 +1220,9 @@ function dvDeleteTicketRegistry(appid) {
   }
 }
 
-// Ghi key CONFIG cua "kernel" g4market (tuong duong HKCU\Software\Valve\CaigamerUnlockerQ
-// cua CaigamerQ). Chi la trang thai cua app (bat unlock + kernel + phien ban) — khong
-// phai ticket, khong game nao doc. Viet 1 lan khi fix xong de co parity + de kernel
-// (neu sau nay tu viet) biet dang bat.
+// Ghi key CONFIG cua "kernel" g4market (HKCU\Software\Valve\G4market). Chi la trang thai
+// cua app (bat unlock + kernel + phien ban) — khong phai ticket, khong game nao doc.
+// Viet 1 lan khi fix xong de co parity + de kernel (neu sau nay tu viet) biet dang bat.
 function dvWriteKernelRegistry(log) {
   const key = "HKCU\\Software\\Valve\\G4market";
   let ver = "0"; try { ver = app.getVersion(); } catch (_) {}
@@ -1214,7 +1238,7 @@ function dvWriteKernelRegistry(log) {
 }
 
 // Loi GIAO ticket qua 2 kenh truc tiep (khong qua .CWK): REGISTRY + LUA.
-//   Kenh 1 REGISTRY (giong CaigamerQ write_steam_registry) — khong phu thuoc thu muc Steam.
+//   Kenh 1 REGISTRY (giong tool khac write_steam_registry) — khong phu thuoc thu muc Steam.
 //   Kenh 2 LUA (cho loader SteamTools/xinput) — 1 block/appid, ghi ca hai thu muc lua.
 // Dung chung boi dvWriteTicketFiles (sau khi dump) va dvApplyCWK (giai ma .CWK). Tra
 // { reg, written[] }. `ts` quyet dinh `created` cua block (de tinh het han + gop trung).
@@ -1393,6 +1417,11 @@ ipcMain.handle("denuvo-clean-expired", async () => {
 //  vo co moi lan mo app. Da tung chay thi mo lai Steam de kernel nap.
 // ============================================================================
 const KERNEL_REPO = "kasakigaming/steam-monitor";
+// Loader dwmapi.dll (39KB) = proxy dat o <Steam>\bin -> nap engine xinput1_4.dll vao
+// steam.exe. KIEN TRUC MOI: app NAY chi cai loader dwmapi.dll; engine xinput1_4.dll +
+// pattern/ipc do noi khac/engine tu lo (engine tu tai pattern/ipc ve <Steam>\win64).
+// URL mac dinh dung khi bang denuvo_kernel trong/chua cau hinh.
+const DENUVO_LOADER_URL = "https://activegameg4-4.netlify.app/new_fix_denuvo/bin/dwmapi.dll";
 function dvBinDir(steamPath) { return path.join(steamPath, "bin"); }
 function dvKernelDataDir(steamPath) { return path.join(dvBinDir(steamPath), "data"); }
 function dvKernelVerFile(steamPath) { return path.join(dvBinDir(steamPath), "g4kernel.ver"); }
@@ -1478,31 +1507,30 @@ async function denuvoKernelEnsure(log) {
   log = log || (() => {});
   const steamPath = getSteamDir();
   if (!steamPath) { log("Kernel: khong ro thu muc Steam -> bo qua."); return { ok: false }; }
-  if (!SUPA_URL || !SUPA_KEY) { log("Kernel: chua cau hinh Supabase -> bo qua."); return { ok: false }; }
-
-  const rows = await sbSelect("denuvo_kernel", "select=url,version,file_type");
-  if (rows && rows.error) { log("Kernel: khong doc duoc bang denuvo_kernel (" + rows.error + ")."); return { ok: false }; }
-  if (!Array.isArray(rows) || !rows.length) { log("Kernel: bang denuvo_kernel trong/chua tao -> bo qua."); return { ok: false }; }
-  const k = rows[0];
-  if (!k.url) { log("Kernel: denuvo_kernel thieu url -> bo qua."); return { ok: false }; }
+  // Doc bang denuvo_kernel (neu co Supabase); thieu/loi/trong -> dung URL mac dinh (netlify).
+  let k = null;
+  if (SUPA_URL && SUPA_KEY) {
+    const rows = await sbSelect("denuvo_kernel", "select=url,version,file_type");
+    if (Array.isArray(rows) && rows.length && rows[0] && rows[0].url) k = rows[0];
+    else if (rows && rows.error) log("Kernel: doc bang denuvo_kernel loi (" + rows.error + ") -> dung URL mac dinh.");
+    else log("Kernel: bang denuvo_kernel trong/thieu url -> dung URL mac dinh.");
+  } else {
+    log("Kernel: chua cau hinh Supabase -> dung URL mac dinh.");
+  }
+  if (!k) k = { url: DENUVO_LOADER_URL, version: "new_fix_denuvo", file_type: "direct" };
   const wantVer = String(k.version || "");
 
   const bin = dvBinDir(steamPath);
   try { fs.mkdirSync(bin, { recursive: true }); } catch (_) {}
-  const hash = await dvSteamclientHash(steamPath);
   const dllPath = path.join(bin, "dwmapi.dll");
   const haveDll = fs.existsSync(dllPath);
-  const haveP = hash && fs.existsSync(path.join(dvKernelDataDir(steamPath), "pattern", `${hash}.toml`));
-  const haveI = hash && fs.existsSync(path.join(dvKernelDataDir(steamPath), "ipc", `${hash}.toml`));
-  if (haveDll && haveP && haveI && dvKernelInstalledVer(steamPath) === wantVer) {
-    log("Kernel da cai dung ban + data khop steamclient -> khong lam gi.");
+  if (haveDll && dvKernelInstalledVer(steamPath) === wantVer) {
+    log("Loader dwmapi.dll da dung ban -> khong lam gi. (engine xinput1_4.dll + pattern/ipc do noi khac / engine tu lo win64)");
     return { ok: true, skipped: true };
   }
 
   const ft = String(k.file_type || "direct").toLowerCase();
   const isArchive = ft === "zip" || ft === "rar";
-  const patDir = path.join(dvKernelDataDir(steamPath), "pattern");
-  const ipcDir = path.join(dvKernelDataDir(steamPath), "ipc");
 
   // Goi .zip/.rar tai + giai nen 1 LAN, dung cho ca data lan dll.
   let exDir = null, pkgTried = false;
@@ -1524,25 +1552,11 @@ async function denuvoKernelEnsure(log) {
     return exDir;
   }
 
-  // --- 1. DATA toml (KHONG dong Steam). GitHub truoc (tuoi nhat theo hash); loi thi
-  //        lay tu goi .zip (snapshot) -> khong phu thuoc mang GitHub luc chay. ---
-  let okP = false, okI = false;
-  if (hash) {
-    okP = await dvFetchMonitorToml("pattern", hash, patDir, log);
-    okI = await dvFetchMonitorToml("ipc", hash, ipcDir, log);
-    if ((!okP || !okI) && isArchive) {
-      log("Kernel: GitHub thieu data -> thu lay tu goi .zip...");
-      if (await ensurePkg()) dvCopyKernelDataFrom(exDir, steamPath, log);
-      okP = okP || fs.existsSync(path.join(patDir, `${hash}.toml`));
-      okI = okI || fs.existsSync(path.join(ipcDir, `${hash}.toml`));
-    }
-    log(`Kernel: data toml pattern=${okP ? "OK" : "THIEU"} ipc=${okI ? "OK" : "THIEU"} (hash ${hash.slice(0, 12)}...)` +
-        (okP && okI ? "." : " — THIEU thi kernel khong hook duoc (chua co ban steamclient nay tren GitHub lan trong goi)."));
-  } else {
-    log("Kernel: khong tinh duoc hash steamclient64.dll -> bo qua tai toml.");
-  }
+  // --- DATA (pattern/ipc): KIEN TRUC MOI -> engine OpenSteamTool (xinput1_4.dll) TU tai
+  //     pattern/ipc ve <Steam>\win64 khi chay. App NAY khong con fetch vao bin\data nua
+  //     (do la cho kernel native cu da bo). App chi lo moi loader dwmapi.dll. ---
 
-  // --- 2. DLL: chi dong Steam khi THUC SU can thay (thieu / khac version). ---
+  // --- DLL loader: chi dong Steam khi THUC SU can thay (thieu / khac version). ---
   const needDll = !haveDll || dvKernelInstalledVer(steamPath) !== wantVer;
   let reopened = false;
   if (!needDll) {
@@ -1588,8 +1602,14 @@ ipcMain.handle("denuvo-kernel-install", async (e) => {
 });
 
 async function denuvoPrepare(log) {
-  // Tu cai/cap nhat kernel native truoc (chi kill Steam khi THUC SU can cai/update).
-  try { await denuvoKernelEnsure(log); } catch (e) { log("Kernel: loi khi cai (" + ((e && e.message) || e) + ") -> van tiep tuc."); }
+  // KIEN TRUC MOI (da qua loi 54): serve ticket + spoof IClientUser::GetSteamID la ENGINE
+  // OpenSteamTool (xinput1_4.dll o Steam ROOT), duoc nap boi LOADER dwmapi.dll o <Steam>\bin.
+  // App NAY lo:
+  //   (1) cai LOADER dwmapi.dll  -> denuvoKernelEnsure (bang denuvo_kernel, fallback netlify);
+  //   (2) ghi credential store (registry AppTicket/ETicket/SteamID donor) + lua
+  //       (dvTicketLuaBlock, da gom forcedenuvo(appid)+dauth2(appid)) cho engine doc.
+  // Engine xinput1_4.dll + pattern/ipc do NOI KHAC lo (engine tu tai pattern/ipc ve win64).
+  try { await denuvoKernelEnsure(log); } catch (e) { log("Loader dwmapi.dll: " + ((e && e.message) || e)); }
 
   const temp = denuvoTempDir();
   fs.mkdirSync(temp, { recursive: true });
@@ -1631,7 +1651,7 @@ function dvScrubLog(log, secrets) {
   };
 }
 
-// Dich ma loi backend -> cau tieng Viet de hieu (cong gate cua CaigamerQ).
+// Dich ma loi backend -> cau tieng Viet de hieu (cong gate cua tool khac).
 function dvBackendErrMsg(err) {
   const code = err && err.code;
   const map = {
@@ -1652,6 +1672,34 @@ function dvBackendErrMsg(err) {
 // ---- Buoc 2: xin account/ticket -> (login + extract_tickets) -> ghi file ----
 // Uu tien BACKEND (ky HMAC, quota chi tru khi THANH CONG, audit). Chua cau hinh
 // backend (.env khong co G4_API_BASE) thi quay ve doc thang Supabase (luong cu).
+// --- Tam TAT kernel trong luc lay ticket ---
+// Kernel hook steamclient -> PHA IPC ma extract_tickets.exe can (loi "stalled cross-thread
+// pipe" / "ConnectToGlobalUser failed"). Da xac nhan: go kernel thi extract OK. Nen trong
+// luc fix (login + extract) phai tat kernel (doi ten dwmapi.dll -> .off), xong bat lai.
+// dwmapi.dll bi khoa khi Steam chay -> dong Steam truoc khi doi ten.
+function dvKernelOnPath(steamPath) { return path.join(dvBinDir(steamPath), "dwmapi.dll"); }
+function dvKernelOffPath(steamPath) { return path.join(dvBinDir(steamPath), "dwmapi.dll.off"); }
+async function dvKernelSuspend(steamPath, log) {
+  if (!steamPath) return false;
+  const on = dvKernelOnPath(steamPath), off = dvKernelOffPath(steamPath);
+  if (!fs.existsSync(on)) return false;            // khong cai kernel -> khong lam gi
+  const { steamExe } = await dvSteamPaths();
+  await dvSteamShutdownWait(steamExe || path.join(steamPath, "steam.exe"), log);
+  try { fs.rmSync(off, { force: true }); fs.renameSync(on, off); log("Kernel: TAM TAT trong luc lay ticket (tranh pha IPC extract)."); return true; }
+  catch (e) { log("Kernel: khong tat duoc (" + ((e && e.message) || e) + ") -> extract co the loi."); return false; }
+}
+async function dvKernelResume(steamPath, log) {
+  if (!steamPath) return;
+  const on = dvKernelOnPath(steamPath), off = dvKernelOffPath(steamPath);
+  if (!fs.existsSync(off)) return;                 // khong co ban .off -> thoi
+  if (await dvSteamRunning()) { const { steamExe } = await dvSteamPaths(); await dvSteamShutdownWait(steamExe || path.join(steamPath, "steam.exe"), log); }
+  try {
+    if (fs.existsSync(on)) fs.rmSync(off, { force: true });   // da co dwmapi.dll (vd cai lai) -> bo .off
+    else fs.renameSync(off, on);
+    log("Kernel: da BAT lai (lan Steam toi se nap + phuc vu ticket).");
+  } catch (e) { log("Kernel: bat lai loi (" + ((e && e.message) || e) + ") -> doi ten .off thu cong."); }
+}
+
 async function denuvoRun(appid, name, log) {
   appid = String(appid || "").trim();
   if (!/^\d+$/.test(appid)) return { ok: false, msg: "appid khong hop le" };
@@ -1660,11 +1708,13 @@ async function denuvoRun(appid, name, log) {
   if (!exe) { log("Chua co cong cu -> chuan bi..."); if (!(await denuvoPrepare(log))) return { ok: false, msg: "khong chuan bi duoc cong cu" }; exe = dvFindExtractTickets(temp); }
   if (!exe) return { ok: false, msg: "khong co extract_tickets.exe" };
 
+  // KERNEL NATIVE DA BO -> khong suspend/resume nua (tranh doi ten nham dwmapi cua
+  // xinput/loader khac trong Steam\bin). Serve ticket do xinput1_4.dll (OpenSteamTool) lo.
   if (API_BASE) return await denuvoRunViaBackend(appid, name, exe, temp, log);
   return await denuvoRunDirect(appid, name, exe, temp, log);
 }
 
-// Luong CHINH (hoc tu CaigamerQ): request -> (login + dump ticket) -> confirm/cancel.
+// Luong CHINH (hoc tu tool khac): request -> (login + dump ticket) -> confirm/cancel.
 // Moi vong xin 1 account moi (gui kem `exclude`), quota chi bi tru o confirm.
 async function denuvoRunViaBackend(appid, name, exe, temp, log) {
   const exclude = [];
@@ -1686,7 +1736,7 @@ async function denuvoRunViaBackend(appid, name, exe, temp, log) {
     }
 
     // Giai doan 2b: backend ship .CWK (lua da ma hoa, base64) -> app giai ma + ghi lua,
-    // KHONG login Steam. Dung path CaigamerQ "decrypt .CWK -> batch_lua_content".
+    // KHONG login Steam. Dung path tool khac "decrypt .CWK -> batch_lua_content".
     if (lease.mode === "cwk") {
       if (!lease.cwk) { log("Backend bao mode cwk nhung thieu du lieu .CWK."); return { ok: false, msg: "cwk rong tu backend" }; }
       const { steamPath } = await dvSteamPaths();
@@ -1853,7 +1903,7 @@ ipcMain.handle("denuvo-run", async (e, arg) => {
 });
 
 // Ap dung 1 file .CWK co san (vd nhan tu may khac / backend) -> giai ma + ghi lua + registry.
-// arg: duong dan .cwk (string) hoac { path }. Giong "decrypt .CWK -> write lua" cua CaigamerQ.
+// arg: duong dan .cwk (string) hoac { path }. Giong "decrypt .CWK -> write lua" cua tool khac.
 ipcMain.handle("denuvo-apply-cwk", async (e, arg) => {
   const log = (m) => { try { e.sender.send("denuvo-log", String(m)); } catch (_) {} };
   try {
